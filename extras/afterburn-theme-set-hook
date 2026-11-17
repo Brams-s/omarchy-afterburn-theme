@@ -5,8 +5,9 @@
 # edition.conf, else embers; if installed), regenerate and reload the glow with `afterburn apply`
 # (Omarchy drops a cloned theme's .lua) in the edition's colours, recolour the lock-screen embers
 # and give them the edition's motion (EMBER_STYLE), and (re)start the watcher.
-# On any other theme: stop the watcher, put the previous cursor-fx effect back, and put the lock
-# embers back to the base orange and the rising motion.
+# On any other theme: stop the watcher, put the previous cursor-fx effect back, put the lock
+# embers back to the base orange and the rising motion, and make Omarchy's own lock the active
+# one again (lock-embers.sh park; coming back to Afterburn unparks it).
 set -u
 THEME="${1:-}"
 EXTRAS="$HOME/.config/omarchy/themes/afterburn/extras"
@@ -45,6 +46,8 @@ declare -F ab_move_savepoints >/dev/null && ab_move_savepoints
 if ab_is_afterburn "$THEME"; then
   # The edition's knobs: your afterburn.conf first, then its edition.conf, then the base default.
   WANT_FX=embers WANT_STYLE=rise
+  # The ember lock comes back if leaving Afterburn parked it (and you have not picked another lock since).
+  if [[ -f $LOCK_MARK && -f $LOCK_SH ]]; then bash "$LOCK_SH" unpark >/dev/null 2>&1 || true; fi
   if declare -F ab_effective >/dev/null; then
     ab_effective CURSOR_FX "$THEME" 2>/dev/null; WANT_FX=$AB_VAL
     ab_effective EMBER_STYLE "$THEME" 2>/dev/null; WANT_STYLE=$AB_VAL
@@ -57,6 +60,8 @@ if ab_is_afterburn "$THEME"; then
       bash "$LOCK_SH" recolor "$AB_FLARE" "$AB_EMBER" "$AB_RUST" "$WANT_STYLE" >/dev/null 2>&1 || true
     fi
   fi
+  # The red prompt symbol, if you chose it at install (a no-op when it is already there).
+  declare -F ab_starship_apply >/dev/null && { ab_starship_apply || true; }
   # Cursor first: afterburn apply may put cursor-fx off in quiet mode, and must see the saved previous effect.
   if command -v cursor-fx >/dev/null; then
     cur=$(cursor_now)
@@ -106,8 +111,14 @@ else
   rm -f "$SUBTLE_REC"
   # Drop the fullscreen and battery flags: the watcher is stopped, so it can't clear them later.
   rm -f "$STATE_DIR/quiet" "$STATE_DIR/saver" "$PRE_QUIET"
+  # Your own prompt symbol on other themes.
+  declare -F ab_starship_restore >/dev/null && { ab_starship_restore || true; }
   # Back to the base palette for the fail flash and the lock embers.
   rm -f "$STATE_DIR/palette.env"
-  if [[ -f $LOCK_MARK && -f $LOCK_SH ]]; then bash "$LOCK_SH" recolor >/dev/null 2>&1 || true; fi
+  # The ember lock is Afterburn's: other themes get Omarchy's own lock screen back until you return.
+  if [[ -f $LOCK_MARK && -f $LOCK_SH ]]; then
+    bash "$LOCK_SH" recolor >/dev/null 2>&1 || true
+    bash "$LOCK_SH" park >/dev/null 2>&1 || true
+  fi
 fi
 exit 0

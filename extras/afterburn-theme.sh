@@ -43,6 +43,85 @@ ab_move_savepoints() {
   rmdir "$old" 2>/dev/null || true
 }
 
+# The red error symbol of the subtle pack, in starship.toml's [character] section. It belongs to Afterburn: the
+# theme-set hook puts it in on Afterburn and takes it out on any other theme.
+#   starship-error-symbol  your own error_symbol line ("absent" if there was none): written by install.sh, and again
+#                          whenever ours goes in over a line you changed meanwhile. It is also the record that you
+#                          chose the red prompt, so it stays across theme switches.
+# Our line is recognised by its exact text, so an install from before this change is restored the same way.
+AB_STARSHIP_LINE='error_symbol = "[❯](bold red)"'
+ab_starship_paths() {
+  AB_STARSHIP="${XDG_CONFIG_HOME:-$HOME/.config}/starship.toml"
+  AB_STARSHIP_ORIG="${XDG_STATE_HOME:-$HOME/.local/state}/afterburn/starship-error-symbol"
+}
+
+# Your current error_symbol line in [character] ("absent" if none), on stdout.
+ab_starship_current() {
+  awk '
+    /^\[/ { sec = $0; sub(/^\[/, "", sec); sub(/\].*$/, "", sec) }
+    sec == "character" && /^error_symbol[ \t]*=/ { print; found = 1; exit }
+    END { if (!found) print "absent" }
+  ' "$1"
+}
+
+# Remember your error_symbol line (install.sh): this also records that you chose the red prompt.
+ab_starship_record() {
+  ab_starship_paths
+  [[ -f $AB_STARSHIP && ! -f $AB_STARSHIP_ORIG ]] || return 0
+  mkdir -p "$(dirname "$AB_STARSHIP_ORIG")" && ab_starship_current "$AB_STARSHIP" > "$AB_STARSHIP_ORIG"
+}
+
+# Write $1 over the real file behind $2 (a symlinked starship.toml stays a link) only when it differs. Write, chmod,
+# then move: a failure leaves the file as it was. $1 is always removed.
+ab_replace_if_changed() {
+  local new=$1 real
+  real=$(readlink -f "$2")
+  if cmp -s "$new" "$real"; then rm -f "$new"; return 0; fi
+  chmod --reference="$real" "$new" && mv "$new" "$real" || { rm -f "$new"; return 1; }
+}
+
+# Our error_symbol in, if you chose it (ab_starship_record ran). The file is only rewritten when something changes,
+# so switching between editions never touches it (a starship.toml kept in a dotfiles repo stays clean).
+# Returns 1 if the write failed (the file is unchanged).
+ab_starship_apply() {
+  ab_starship_paths
+  [[ -f $AB_STARSHIP && -f $AB_STARSHIP_ORIG ]] || return 0
+  local real tmp cur
+  real=$(readlink -f "$AB_STARSHIP")
+  # A line of yours that is there now (you changed it while on another theme) is the one to give back later.
+  cur=$(ab_starship_current "$real") || return 1
+  if [[ $cur != "$AB_STARSHIP_LINE" && $cur != "$(cat "$AB_STARSHIP_ORIG")" ]]; then
+    printf '%s\n' "$cur" > "$AB_STARSHIP_ORIG" || return 1
+  fi
+  tmp=$(mktemp "$(dirname "$real")/.starship.XXXXXX") || return 1
+  LINE="$AB_STARSHIP_LINE" awk '
+    function close_character() { if (sec == "character" && !done) { print ENVIRON["LINE"]; done = 1 } }
+    /^\[/ { close_character(); sec = $0; sub(/^\[/, "", sec); sub(/\].*$/, "", sec); print; next }
+    sec == "character" && /^error_symbol[ \t]*=/ { print ENVIRON["LINE"]; done = 1; next }
+    { print }
+    END { if (!done) { if (sec == "character") print ENVIRON["LINE"]; else { print ""; print "[character]"; print ENVIRON["LINE"] } } }
+  ' "$real" > "$tmp" || { rm -f "$tmp"; return 1; }
+  ab_replace_if_changed "$tmp" "$AB_STARSHIP"
+}
+
+# Your original error_symbol back (or ours simply dropped, if you had none), only while our line is still there.
+# Returns 0 when done, 1 when the write failed (the file is unchanged), 2 when our line is not there (already
+# restored, or you changed it since: either way it is left as is), 3 when there is nothing to restore from.
+ab_starship_restore() {
+  ab_starship_paths
+  [[ -f $AB_STARSHIP_ORIG && -f $AB_STARSHIP ]] || return 3
+  grep -qxF "$AB_STARSHIP_LINE" "$AB_STARSHIP" || return 2
+  local real tmp
+  real=$(readlink -f "$AB_STARSHIP")
+  tmp=$(mktemp "$(dirname "$real")/.starship.XXXXXX") || return 1
+  # ENVIRON, not -v: awk -v would turn a backslash in your original line (\u2717, \\) into something else.
+  OURS="$AB_STARSHIP_LINE" ORIG="$(cat "$AB_STARSHIP_ORIG")" awk '
+    $0 == ENVIRON["OURS"] && !done { done = 1; if (ENVIRON["ORIG"] != "absent") print ENVIRON["ORIG"]; next }
+    { print }
+  ' "$real" > "$tmp" || { rm -f "$tmp"; return 1; }
+  ab_replace_if_changed "$tmp" "$AB_STARSHIP"
+}
+
 # Theme name as Omarchy stores it (lowercase, dashes). Empty if unknown.
 ab_theme_name() {
   cat "$HOME/.local/state/omarchy/current/theme.name" 2>/dev/null || true

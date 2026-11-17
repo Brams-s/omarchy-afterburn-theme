@@ -402,6 +402,30 @@ cmd_status() {
   for k in $KEYS; do printf '  %-16s %s%s\n' "$k" "${!k}" "${SRC[$k]:+  (${SRC[$k]})}"; done
 }
 
+# The lock-screen embers, read only: which clone, which lock is enabled, parked or not, and whether the clone's loader
+# is the one this release ships (an old one shows no embers; issue #5).
+doctor_lock() {
+  local id dir list cs os newest loader="$THEME_DIR/extras/lock/EmberLoader.qml"
+  if [[ ! -f $STATE/lock-embers ]]; then
+    echo "lock:       embers not installed (Omarchy's own lock screen)"
+    return 0
+  fi
+  id=$(sed -n 's/^clone_id=//p' "$STATE/lock-embers" | head -n1)
+  id=${id:-${USER:-$(id -un)}.lock}
+  dir="$HOME/.config/omarchy/plugins/$id"
+  list=$(omarchy-plugin-list 2>/dev/null) || list=""
+  cs=$(awk -v id="$id" '$1 == id { print $2; exit }' <<<"$list")
+  os=$(awk '$1 == "omarchy.lock" { print $2; exit }' <<<"$list")
+  echo "lock:       $id ${cs:-unknown}, omarchy.lock ${os:-unknown}$([[ -f $STATE/lock-parked ]] && echo "  (parked: Afterburn's lock comes back when you switch to Afterburn)")"
+  if [[ -d $dir ]]; then
+    newest=$(find "$dir" -mindepth 1 -maxdepth 1 -type d -name 'embers.*' | sort | tail -n1)
+    echo "  loader:   $(cmp -s "$loader" "$dir/EmberLayer.qml" && echo "current" || echo "OUTDATED: switch theme once, then log out and back in")"
+    echo "  embers:   $([[ -n $newest ]] && basename "$newest" || echo "none")"
+  else
+    echo "  clone folder missing: $dir"
+  fi
+}
+
 # Read-only checkup: everything that can switch the effects off, on one screen. Writes nothing
 # (it reads the conf directly instead of load_conf, which would create a missing one).
 cmd_doctor() {
@@ -429,6 +453,7 @@ cmd_doctor() {
   echo "watcher:    $(systemctl --user is-active afterburn-watch.service 2>/dev/null || true) (afterburn-watch.service)"
   echo "cursor-fx:  $(command -v cursor-fx >/dev/null 2>&1 && echo installed || echo "NOT installed: no cursor effects")"
   echo "ghostty:    $(command -v ghostty >/dev/null 2>&1 && echo installed || echo "NOT installed")"
+  doctor_lock
   n=$(hyprctl configerrors 2>/dev/null | grep -Evc '^[[:space:]]*$|^no errors' || true)
   echo "hyprland config errors: ${n:-0}$([[ ${n:-0} -gt 0 ]] && echo "  (see: hyprctl configerrors)")"
 }

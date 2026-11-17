@@ -240,26 +240,16 @@ elif ask "Add the subtle pack? (slow-turning border, dimmed background windows, 
   conf_set HEAT_SOURCE "$HEAT"
   ok "heat source: $HEAT"
 
-  # Red error symbol in starship.toml. The original is backed up once, before the first edit.
+  # Red error symbol in starship.toml. The original is backed up once, before the first edit. The theme-set hook
+  # takes the symbol out on other themes and puts it back on Afterburn (ab_starship_* in afterburn-theme.sh).
   if [[ -f $STARSHIP ]]; then
     [[ -f $STATE_DIR/starship.toml.bak ]] || cp -p "$STARSHIP" "$STATE_DIR/starship.toml.bak"
-    # Remember only the original error_symbol line ("absent" if there was none). uninstall.sh puts it back.
-    [[ -f $STATE_DIR/starship-error-symbol ]] || awk '
-      /^\[/ { sec = $0; sub(/^\[/, "", sec); sub(/\].*$/, "", sec) }
-      sec == "character" && /^error_symbol[ \t]*=/ { print; found = 1; exit }
-      END { if (!found) print "absent" }
-    ' "$STARSHIP" > "$STATE_DIR/starship-error-symbol"
     CHANGED+=("starship.toml error_symbol (safety copy of the whole file in $STATE_DIR/starship.toml.bak)")
-    awk -v line='error_symbol = "[❯](bold red)"' '
-      function close_character() { if (sec == "character" && !done) { print line; done = 1 } }
-      /^\[/ { close_character(); sec = $0; sub(/^\[/, "", sec); sub(/\].*$/, "", sec); print; next }
-      sec == "character" && /^error_symbol[ \t]*=/ { print line; done = 1; next }
-      { print }
-      END { if (!done) { if (sec == "character") print line; else { print ""; print "[character]"; print line } } }
-    ' "$STARSHIP" > "$STATE_DIR/starship.tmp" \
-      && cat "$STATE_DIR/starship.tmp" > "$STARSHIP" && rm -f "$STATE_DIR/starship.tmp" \
-      && ok "prompt: failed command shows a red ❯ (backup in $STATE_DIR/starship.toml.bak)" \
-      || skip "couldn't edit $STARSHIP; prompt unchanged"
+    if ab_starship_record && ab_starship_apply; then
+      ok "prompt: failed command shows a red ❯ on Afterburn themes (backup in $STATE_DIR/starship.toml.bak)"
+    else
+      skip "couldn't edit $STARSHIP; prompt unchanged"
+    fi
   else
     skip "no $STARSHIP, so the prompt symbol is unchanged"
   fi

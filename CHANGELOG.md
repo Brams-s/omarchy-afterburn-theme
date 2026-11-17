@@ -1,6 +1,16 @@
 # Changelog
 
-Dates are 2026. The theme installs from `main`, so the 2.0.5 section below is the current release.
+Dates are 2026. The theme installs from `main`, so the 2.0.6 section below is the current release.
+
+## 2.0.6 — 2026-11-17
+
+Three follow-ups to #5, reported from a real Omarchy machine. Thanks to anmolsharma152 for testing it.
+
+### Fixed
+- **The lock-screen embers show again.** The ember loader built its path as folder + name, and Quickshell gives that folder without a trailing slash, so it looked for `…/afterburn.lockembers.<n>/Embers.qml` and showed only the blurred wallpaper. It now takes the folder's own URL from the file list. Your next theme change (or installer run) puts the new loader in place; **log out and back in once** after that, because the shell keeps the old one loaded until then. `afterburn doctor` now says whether the loader is current.
+- **Other themes get Omarchy's own lock screen back.** Leaving Afterburn now switches the active lock to `omarchy.lock` (the clone stays installed), and coming back switches the ember lock on again. If you pick a different lock screen while away, it stays yours. At every step one lock stays enabled: the clone is only switched off once the built-in lock is confirmed on, and a failed switch leaves things as they were. `afterburn doctor` shows which lock is on and whether it is parked.
+- **The fail flash and the red prompt stay with Afterburn.** The failed-command flash plays only on Afterburn and its editions. The red `❯` in starship.toml is taken out when you leave Afterburn and put back when you return; if you changed your own `error_symbol` meanwhile, that one is what comes back. The file is rewritten only when something actually changes, so switching between editions never touches it.
+- **Uninstall can remove cursor-fx.** If Afterburn installed it, `uninstall.sh` asks (Enter means yes; with no terminal it keeps it). It runs `cursor-fx off`, takes cursor-fx's lines out of the Ghostty config, and moves `~/.local/bin/cursor-fx`, the shader and effect files cursor-fx ships, and its pi extension into `~/.local/state/afterburn/cursor-fx-removed-<time>/`, so nothing is lost. Files of your own in those folders stay. `--remove-cursor-fx` and `--keep-cursor-fx` skip the question. A cursor-fx you had before Afterburn is never touched.
 
 ## 2.0.5 — 2026-11-13
 

@@ -57,6 +57,25 @@ class FailFlashTests(unittest.TestCase):
         self.assertEqual(self.flashes(["false\n", "false\n"]), [True, True])
         self.assertEqual(self.flashes(["false\n", "false\n"], histcontrol="ignoreboth:erasedups"), [True, True])
 
+    def theme_flashes(self, theme):
+        sb = Sandbox()
+        self.addCleanup(sb.cleanup)
+        name = sb.home / ".local/state/omarchy/current/theme.name"
+        if theme is None:
+            name.unlink()
+        else:
+            sb.write_state_text(name, theme + "\n")
+        return ["\x1b[2K" in out for out in interactive(sb, ["false\n"])[1:]]
+
+    def test_flashes_on_afterburn_and_its_editions(self):
+        self.assertEqual(self.theme_flashes("afterburn"), [True])
+        self.assertEqual(self.theme_flashes("afterburn-redline"), [True])
+
+    def test_no_flash_on_other_themes(self):  # issue #5 follow-up
+        self.assertEqual(self.theme_flashes("nord"), [False])
+        self.assertEqual(self.theme_flashes("afterburnish"), [False])
+        self.assertEqual(self.theme_flashes(None), [False])
+
     def test_first_prompt_does_not_flash(self):
         sb = Sandbox()
         self.addCleanup(sb.cleanup)
