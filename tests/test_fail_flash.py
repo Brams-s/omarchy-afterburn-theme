@@ -10,8 +10,12 @@ FAIL_BASH = REPO / "extras" / "afterburn-fail.bash"
 
 
 # Every flash frame starts with an erase-line escape; the glyph itself is not in every frame.
-def interactive(sb, keys, histcontrol="ignoreboth", after=""):
-    """Run a real interactive bash in a pty; return the output after sourcing, then after each key line."""
+def interactive(sb, keys, histcontrol="ignoreboth", after="", conf=True):
+    """Run a real interactive bash in a pty; return the output after sourcing, then after each key line.
+    conf: the subtle pack's afterburn.conf exists (install writes it; uninstall renames it)."""
+    c = sb.home / ".config/afterburn/afterburn.conf"
+    if conf and not c.exists():
+        sb.write_state_text(c, "")
     env = sb.env(HISTCONTROL=histcontrol, PS1="PRMT> ")
     pid, fd = pty.fork()
     if pid == 0:
@@ -88,6 +92,13 @@ class FailFlashTests(unittest.TestCase):
         self.addCleanup(sb.cleanup)
         sb.write_state_text(sb.home / ".config/afterburn/afterburn.conf", "FAIL_FX=off\n")
         self.assertEqual(["\x1b[2K" in out for out in interactive(sb, ["false\n", "true\n"])[1:]], [False, False])
+
+    def test_open_shells_stop_flashing_after_uninstall(self):  # Codex review C5
+        sb = Sandbox()
+        self.addCleanup(sb.cleanup)
+        conf = sb.home / ".config/afterburn/afterburn.conf"
+        out = interactive(sb, ["false\n", f"mv {conf} {conf}.bak\n", "false\n"])[1:]
+        self.assertEqual(["\x1b[2K" in o for o in out], [True, False, False])
 
     def test_the_hook_goes_first_in_an_array_or_a_string_also_under_set_u(self):
         sb = Sandbox()

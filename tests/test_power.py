@@ -176,5 +176,35 @@ class DiagnosticTests(PowerBase):
         self.assertIn("afterburn saver off", saver_line)
 
 
+
+class SaverPolicyAndSerialising(unittest.TestCase):
+    def setUp(self):
+        self.sb = Sandbox()
+        self.addCleanup(self.sb.cleanup)
+        (self.sb.home / ".local/state/omarchy/current/theme").mkdir(parents=True)
+
+    def test_laptop_on_survives_a_theme_round_trip(self):  # Codex review C8
+        r = self.sb.afterburn("laptop", "on")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        (self.sb.state_dir / "saver").unlink()          # leaving Afterburn drops the flag
+        r = self.sb.afterburn("apply")                  # coming back
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual((self.sb.state_dir / "saver").read_text().strip(), "on")
+
+    def test_commands_that_change_things_wait_for_each_other(self):  # Codex review C4
+        import fcntl
+        self.sb.state_dir.mkdir(parents=True, exist_ok=True)
+        lck = open(self.sb.state_dir / "afterburn.lck", "w")
+        self.addCleanup(lck.close)
+        fcntl.flock(lck, fcntl.LOCK_EX)
+        r = self.sb.afterburn("quiet", "on", AFTERBURN_LOCK_WAIT="1")
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("try again", r.stderr)
+        self.assertFalse((self.sb.state_dir / "quiet").exists())
+        fcntl.flock(lck, fcntl.LOCK_UN)
+        r = self.sb.afterburn("status")                 # reading never waits
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

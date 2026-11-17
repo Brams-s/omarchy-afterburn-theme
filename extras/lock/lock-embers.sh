@@ -153,7 +153,10 @@ resolve_clone_id() {
     if usable_id "$m"; then CLONE_ID=$m; return 0; fi
     say "ignoring clone_id '$m' in $MARKER (not a usable plugin id)"
   fi
-  if usable_id "$LEGACY_ID" && [[ -d $PLUGINS_DIR/$LEGACY_ID ]] && is_our_clone "$PLUGINS_DIR/$LEGACY_ID"; then
+  # The id and parent alone also fit a clone you made yourself (`omarchy plugin clone omarchy.lock` names it
+  # "$USER.lock" too): only one with Afterburn's embers layer in it is ours.
+  if usable_id "$LEGACY_ID" && [[ -d $PLUGINS_DIR/$LEGACY_ID && -f $PLUGINS_DIR/$LEGACY_ID/EmberLayer.qml ]] &&
+     is_our_clone "$PLUGINS_DIR/$LEGACY_ID"; then
     CLONE_ID=$LEGACY_ID
     return 0
   fi
@@ -410,7 +413,9 @@ take_lock() {
   if command -v flock >/dev/null; then
     mkdir -p "$STATE_DIR"
     exec 9>"$STATE_DIR/lock-embers.lck"
-    flock -w 30 9 || say "another lock-embers run held the lock for 30 s; going on"
+    # Never go on without it: an unlocked run could undo a newer one. The next theme change tries again.
+    flock -w "${LOCK_EMBERS_WAIT:-120}" 9 ||
+      die "another lock-embers run held the lock for ${LOCK_EMBERS_WAIT:-120} s; nothing changed (the next theme change tries again)"
   fi
   if [[ -n ${LOCK_EMBERS_FOR_THEME:-} ]] &&
      [[ $LOCK_EMBERS_FOR_THEME != "$(cat "$HOME/.local/state/omarchy/current/theme.name" 2>/dev/null)" ]]; then
@@ -457,14 +462,16 @@ unpark_layer() {
     rm -f "$PARKED"
     return 0
   fi
-  local rc=0
+  local rc=0 src
   other_lock_enabled >/dev/null || rc=$?
-  if [[ $(plugin_state "$SOURCE_ID") != enabled ]] || (( rc == 0 )); then
+  src=$(plugin_state "$SOURCE_ID")
+  # A list that failed is "cannot tell", not "you changed it": keep the park record for the next try.
+  [[ $rc != 2 && -n $src ]] || die "cannot tell which lock screens are enabled; trying again on the next theme change"
+  if [[ $src != enabled ]] || (( rc == 0 )); then
     say "your lock screen changed while Afterburn was away; leaving it"
     rm -f "$PARKED"
     return 0
   fi
-  (( rc == 1 )) || die "cannot tell which lock screens are enabled; trying again on the next theme change"
   if ! omarchy-plugin-enable "$CLONE_ID" >/dev/null 2>&1 || [[ $(plugin_state "$CLONE_ID") != enabled ]]; then
     [[ $(plugin_state "$SOURCE_ID") == enabled ]] || omarchy-plugin-enable "$SOURCE_ID" >/dev/null 2>&1 || true
     die "could not make $CLONE_ID the active lock screen; $SOURCE_ID stays"

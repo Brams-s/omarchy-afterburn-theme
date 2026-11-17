@@ -94,8 +94,16 @@ fi
 
 # Cursor effect: after the edition switch above, not before. Switching to the base theme runs the theme-set
 # hook, which sets that theme's effect; restoring first would let it overwrite your own effect again.
+# Only over Afterburn's own effect (as when you leave Afterburn): one you picked yourself stays.
 if [[ -f $STATE_DIR/prev-cursor-fx ]] && command -v cursor-fx >/dev/null; then
-  cursor-fx "$(cat "$STATE_DIR/prev-cursor-fx")" >/dev/null 2>&1 && echo "  ✓ cursor effect restored"
+  cur=$(ab_cursor_now)
+  [[ -f $STATE_DIR/cursor-pre-quiet ]] && cur=$(cat "$STATE_DIR/cursor-pre-quiet")
+  ours=$(cat "$STATE_DIR/cursor-fx-set" 2>/dev/null || true)
+  if [[ -n $ours && $cur != "$ours" ]]; then
+    echo "  · cursor effect: kept $cur, which you picked yourself"
+  elif cursor-fx "$(cat "$STATE_DIR/prev-cursor-fx")" >/dev/null 2>&1; then
+    echo "  ✓ cursor effect restored"
+  fi
 fi
 
 # Subtle: only if battery saver turned it on and nothing has turned it off again (a subtle you had on is left alone).
@@ -105,12 +113,13 @@ fi
 
 # cursor-fx: only if the installer put it there (its checkout in ~/.local/share/afterburn is the proof: install.sh
 # only clones it when it installs cursor-fx). Everything is moved into one backup folder, so it can be put back.
-CFX_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/afterburn/ghostty-cursor-fx"
+CFX_DIR="$HOME/.local/share/afterburn/ghostty-cursor-fx"   # install.sh's path, whatever XDG_DATA_HOME says
 CFX_NOTE=mine
 remove_cursor_fx() {
   local cfg gdir bak sub f name real tmp left
   cfg=${XDG_CONFIG_HOME:-$HOME/.config}/ghostty/config; [[ -e $cfg ]] || cfg+=.ghostty
-  gdir=$(dirname "$cfg")
+  # cursor-fx's installer puts its folders beside the real config file (a dotfiles link is followed).
+  gdir=$(dirname "$(readlink -f "$cfg")")
   bak="$STATE_DIR/cursor-fx-removed-$(date +%Y%m%d-%H%M%S)"
   mkdir -p "$bak" || return 1
   command -v cursor-fx >/dev/null && { cursor-fx off >/dev/null 2>&1 || true; }
@@ -160,6 +169,7 @@ if [[ -d $CFX_DIR ]]; then
     if remove_cursor_fx; then CFX_NOTE=removed; else
       RC=1; CFX_NOTE=failed
       echo "  ✗ cursor-fx not fully removed; what was moved is in $STATE_DIR/cursor-fx-removed-*"
+      echo "    fix the error above, then run: $0 --remove-cursor-fx"
     fi
   else
     CFX_NOTE=kept
@@ -189,27 +199,35 @@ case $srv in
      echo "  ✗ starship error_symbol not restored (your file is unchanged); original line is in $STATE_DIR/starship-error-symbol" ;;
   2) echo "  · starship error_symbol is not Afterburn's red ❯; nothing to restore" ;;
 esac
-# ~/.bashrc: delete only the line the installer added, matched whole. Written to a temp file, then moved into place.
-if grep -qxF "$AB_BASHRC_LINE" "$HOME/.bashrc" 2>/dev/null; then
-  real=$(readlink -f "$HOME/.bashrc")
-  tmp=$(mktemp "$(dirname "$real")/.bashrc.XXXXXX")
+# ~/.bashrc: delete only the lines the installer added, matched whole. Written to a temp file, then moved into place.
+# $1 the line, $2 its marker (a newline was added before it), $3 what to call it. Reverse install order (the
+# cursor-fx step runs before the subtle pack), so a line whose newline the installer added is the last one left.
+BASHRC_REAL=$(readlink -f "$HOME/.bashrc")
+remove_bashrc_line() {
+  grep -qxF "$1" "$BASHRC_REAL" 2>/dev/null || return 0
+  local tmp
+  tmp=$(mktemp "$(dirname "$BASHRC_REAL")/.bashrc.XXXXXX")
   # Write, then chmod, then move (as for starship above). awk, not grep -v: grep exits 1 when nothing is left.
   if {
-    if [[ -f $STATE_DIR/bashrc-newline && $(tail -n1 "$real") == "$AB_BASHRC_LINE" ]]; then
-      # The installer added a newline before its line because the file had none, and the marker line is last:
-      # drop the marker line and that newline, so the file is byte-for-byte the original.
-      head -n -1 "$real" | head -c -1 > "$tmp"
+    if [[ -f $STATE_DIR/$2 && $(tail -n1 "$BASHRC_REAL") == "$1" ]]; then
+      # The installer added a newline before its line because the file had none, and the line is last:
+      # drop the line and that newline, so the file is byte-for-byte the original.
+      head -n -1 "$BASHRC_REAL" | head -c -1 > "$tmp"
     else
-      LINE="$AB_BASHRC_LINE" awk '$0 != ENVIRON["LINE"]' "$real" > "$tmp"
+      LINE="$1" awk '$0 != ENVIRON["LINE"]' "$BASHRC_REAL" > "$tmp"
     fi
-  } && chmod --reference="$real" "$tmp" && mv "$tmp" "$real"; then
-    echo "  ✓ ~/.bashrc line removed"
-    # The installer made this file (there was none): take it away again if nothing else is in it.
-    if [[ -f $STATE_DIR/bashrc-created && ! -s $real ]]; then rm -f "$real" && echo "  ✓ ~/.bashrc removed (the installer had created it, and it is empty)"; fi
+  } && chmod --reference="$BASHRC_REAL" "$tmp" && mv "$tmp" "$BASHRC_REAL"; then
+    echo "  ✓ ~/.bashrc $3 line removed"
   else
-    rm -f "$tmp"; KEEP+=(bashrc-newline bashrc-created); RC=1
-    echo "  ✗ ~/.bashrc line not restored (your file is unchanged); remove the line ending in '# afterburn' yourself"
+    rm -f "$tmp"; KEEP+=("$2" bashrc-created); RC=1
+    echo "  ✗ ~/.bashrc $3 line not restored (your file is unchanged); remove the line ending in '# afterburn' yourself"
   fi
+}
+remove_bashrc_line "$AB_BASHRC_LINE" bashrc-newline "fail-effect"
+remove_bashrc_line "$AB_CFX_BASHRC_LINE" cfx-bashrc-newline "cursor-fx Enter"
+# The installer made this file (there was none): take it away again if nothing else is in it.
+if [[ -f $STATE_DIR/bashrc-created && -f $BASHRC_REAL && ! -s $BASHRC_REAL ]]; then
+  rm -f "$BASHRC_REAL" && echo "  ✓ ~/.bashrc removed (the installer had created it, and it is empty)"
 fi
 APPS_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 rm -f "$APPS_DIR/afterburn-colors.desktop"
@@ -226,7 +244,8 @@ rmdir "$CONF_HOME/afterburn" 2>/dev/null || true
 # The cursor-fx checkout is the one thing the installer puts in ~/.local/share/afterburn. Kept while cursor-fx is:
 # it names the files to remove, so `uninstall.sh --remove-cursor-fx` later still knows what is Afterburn's.
 DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
-[[ $CFX_NOTE == kept ]] || rm -rf "$CFX_DIR"
+# Only after a full removal: a failed one keeps it, so a retry knows what is left.
+[[ $CFX_NOTE == removed ]] && rm -rf "$CFX_DIR"
 rmdir "$HOME/.local/share/afterburn" 2>/dev/null || true
 # Remove the directories the installer created, but only if they are now empty.
 rmdir "$BIN" "$CONF_HOME/systemd/user" "$CONF_HOME/systemd" "$APPS_DIR" "$DATA_HOME" 2>/dev/null || true

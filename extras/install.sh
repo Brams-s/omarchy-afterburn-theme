@@ -40,6 +40,20 @@ ask() { $YES && return 0; local a; read -rp "  $1 [Y/n] " a || { echo; return 1;
 ask_no() { local a; read -rp "  $1 [y/N] " a || { echo; return 1; }; [[ $a =~ ^[Yy] ]]; }
 
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/afterburn"
+BASHRC="$HOME/.bashrc"
+
+# Append one guarded line ($1) to ~/.bashrc unless it is there already. $2 names the marker that tells
+# uninstall.sh a newline was added before it (the file did not end in one), so it can drop that again.
+add_bashrc_line() {
+  grep -qxF "$1" "$BASHRC" 2>/dev/null && return 0
+  mkdir -p "$STATE_DIR"
+  [[ -e $BASHRC ]] || : > "$STATE_DIR/bashrc-created"   # no .bashrc yet: uninstall.sh removes ours again if it ends up empty
+  if [[ -s $BASHRC && -n $(tail -c1 "$BASHRC") ]]; then
+    echo >> "$BASHRC"
+    : > "$STATE_DIR/$2"
+  fi
+  echo "$1" >> "$BASHRC"
+}
 
 # Each step records here just before it changes something, so a failure can say what was touched.
 CHANGED=()
@@ -165,6 +179,18 @@ elif ask "Install cursor-fx, animated Ghostty cursors by Avarce (MIT)?"; then
 else
   skip "skipped cursor-fx. Re-run this script any time to add it"
 fi
+# Enter and done moments in bash: cursor-fx's own installer wires pi only (zsh and Claude Code are manual).
+if command -v cursor-fx >/dev/null; then
+  if grep -qxF "$AB_CFX_BASHRC_LINE" "$BASHRC" 2>/dev/null; then
+    ok "cursor effects play on Enter in bash"
+  elif ask "Play the cursor effect on Enter in bash? (one line in ~/.bashrc; cursor-fx ships only a zsh hook)"; then
+    CHANGED+=("~/.bashrc: cursor-fx Enter line appended")
+    add_bashrc_line "$AB_CFX_BASHRC_LINE" cfx-bashrc-newline
+    ok "cursor effects play on Enter in bash (new terminals)"
+  else
+    skip "skipped the bash Enter hook: the effect plays while typing, not on Enter"
+  fi
+fi
 # cursor-fx's installer always backs up to ~/ghostty-savepoints; older Afterburn left its savepoints there too.
 if [[ -d $HOME/ghostty-savepoints ]]; then
   ab_move_savepoints
@@ -184,7 +210,6 @@ BIN="$HOME/.local/bin"
 UNIT_DIR="$CONF_HOME/systemd/user"
 APPS_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 STARSHIP="$CONF_HOME/starship.toml"
-BASHRC="$HOME/.bashrc"
 # Rewrite KEY=VALUE in place, or append it when the conf has no such line (as set_key in bin/afterburn does).
 conf_set() {
   if grep -q "^$1=" "$CONF"; then
@@ -255,15 +280,8 @@ elif ask "Add the subtle pack? (slow-turning border, dimmed background windows, 
   fi
 
   # One guarded line in ~/.bashrc, sourced only when the file exists.
-  if ! grep -qxF "$AB_BASHRC_LINE" "$BASHRC" 2>/dev/null; then
-    CHANGED+=("~/.bashrc: fail-effect line appended")
-    [[ -e $BASHRC ]] || : > "$STATE_DIR/bashrc-created"   # no .bashrc yet: uninstall.sh removes ours again if it ends up empty
-    if [[ -s $BASHRC && -n $(tail -c1 "$BASHRC") ]]; then
-      echo >> "$BASHRC"
-      : > "$STATE_DIR/bashrc-newline"   # uninstall.sh drops this newline again
-    fi
-    echo "$AB_BASHRC_LINE" >> "$BASHRC"
-  fi
+  grep -qxF "$AB_BASHRC_LINE" "$BASHRC" 2>/dev/null || CHANGED+=("~/.bashrc: fail-effect line appended")
+  add_bashrc_line "$AB_BASHRC_LINE" bashrc-newline
   ok "~/.bashrc: one guarded line sources the fail effect"
 
   # User service: the watcher handles fullscreen quiet, battery saver and the heat level.

@@ -36,8 +36,8 @@ class UninstallCursorFx(unittest.TestCase):
         self.pi = h / ".pi/agent/extensions/cursor-fx.ts"
         self.sb.write_state_text(self.pi, "// pi\n")
 
-    def uninstall(self, *args, answer=None):
-        r = subprocess.run(["/bin/bash", str(UNINSTALL), *args], env=self.sb.env(), capture_output=True, text=True,
+    def uninstall(self, *args, answer=None, **env):
+        r = subprocess.run(["/bin/bash", str(UNINSTALL), *args], env=self.sb.env(**env), capture_output=True, text=True,
                            timeout=60, input=answer if answer is not None else None,
                            stdin=None if answer is not None else subprocess.DEVNULL)
         return r
@@ -108,6 +108,49 @@ class UninstallCursorFx(unittest.TestCase):
         self.assertTrue((self.sb.home / ".local/bin/cursor-fx").exists())
         self.assertEqual((self.ghostty / "config").read_text(), CONFIG)
         self.assertEqual(list(self.sb.state_dir.glob("cursor-fx-removed-*")), [])
+
+    def test_a_different_xdg_data_home_still_finds_the_checkout(self):  # PR #8 review
+        other = self.sb.root / "elsewhere"
+        other.mkdir()
+        self.assert_removed(self.uninstall("--remove-cursor-fx", XDG_DATA_HOME=str(other)))
+
+    def test_a_failed_removal_keeps_the_checkout_so_a_retry_finishes_it(self):  # PR #8 review
+        import shutil as sh
+        real = sh.which("mv")
+        flag = self.sb.root / "mv-fails"
+        flag.touch()
+        stub = self.sb.bin / "mv"
+        stub.unlink()
+        stub.write_text(f'''#!/bin/bash
+if [[ -e {flag} && $* == *.local/bin/cursor-fx* ]]; then echo "mv: boom" >&2; exit 1; fi
+exec {real} "$@"
+''')
+        stub.chmod(0o755)
+        r = self.uninstall("--remove-cursor-fx")
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("not fully removed", r.stdout)
+        self.assertTrue(self.checkout.exists(), "the checkout names what is left to remove")
+        self.assertTrue((self.sb.home / ".local/bin/cursor-fx").exists())
+        flag.unlink()
+        r = self.uninstall("--remove-cursor-fx")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("✓ cursor-fx removed", r.stdout)
+        self.assertFalse((self.sb.home / ".local/bin/cursor-fx").exists())
+        self.assertFalse(self.checkout.exists())
+
+    def test_assets_beside_a_symlinked_config_are_found(self):  # PR #8 review
+        import shutil as sh
+        dots = self.sb.home / "dotfiles/ghostty"
+        dots.parent.mkdir(parents=True)
+        sh.move(str(self.ghostty), str(dots))
+        self.ghostty.mkdir()
+        (self.ghostty / "config").symlink_to(dots / "config")
+        r = self.uninstall("--remove-cursor-fx")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertFalse((dots / "shaders").exists(), r.stdout)
+        self.assertFalse((dots / "cursor-effects").exists())
+        self.assertEqual((dots / "config").read_text(), "font-size = 12\ntheme = dark\n")
+        self.assertTrue((self.ghostty / "config").is_symlink())
 
     def test_unknown_argument_changes_nothing(self):
         r = self.uninstall("--bogus")

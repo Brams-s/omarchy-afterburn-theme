@@ -119,6 +119,26 @@ class LockFollowsTheme(unittest.TestCase):
         self.hook("afterburn")
         self.assertEqual(self.sb.enabled_locks(), ["afterburn.lock"])
 
+    def test_a_failed_plugin_list_keeps_the_park_for_a_retry(self):  # Codex review C2
+        self.hook("nord")
+        self.hook("afterburn", STUB_LIST_FAIL="1")
+        self.assertTrue(self.parked.exists(), "cannot tell is not 'you changed it'")
+        self.assertEqual(self.sb.enabled_locks(), ["omarchy.lock"])
+        self.hook("afterburn")
+        self.assertEqual(self.sb.enabled_locks(), ["afterburn.lock"])
+        self.assertFalse(self.parked.exists())
+
+    def test_a_lock_wait_that_times_out_changes_nothing(self):  # PR #8 review
+        import fcntl
+        lck = open(self.sb.state_dir / "lock-embers.lck", "w")
+        self.addCleanup(lck.close)
+        fcntl.flock(lck, fcntl.LOCK_EX)
+        r = self.sb.lock("park", LOCK_EMBERS_WAIT="1")
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("nothing changed", r.stdout + r.stderr)
+        self.assertEqual(self.sb.enabled_locks(), ["afterburn.lock"])
+        self.assertFalse(self.parked.exists())
+
     def test_no_shell_means_no_change(self):
         (self.sb.bin / "omarchy-plugin-list").write_text("#!/bin/bash\nexit 1\n")
         self.hook("nord")

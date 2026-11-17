@@ -21,6 +21,23 @@
 # that merely ends in "# afterburn" is never touched). $HOME stays literal in the file.
 AB_FAIL_SH='$HOME/.config/omarchy/themes/afterburn/extras/afterburn-fail.bash'
 AB_BASHRC_LINE="[[ -f \"$AB_FAIL_SH\" ]] && source \"$AB_FAIL_SH\"  # afterburn"
+# The cursor-fx step's own line: Enter and done moments in bash (cursor-fx ships a zsh hook only).
+AB_CFX_ENTER_SH='$HOME/.config/omarchy/themes/afterburn/extras/cursor-fx-enter.bash'
+AB_CFX_BASHRC_LINE="[[ -f \"$AB_CFX_ENTER_SH\" ]] && source \"$AB_CFX_ENTER_SH\"  # afterburn cursor-fx"
+
+# Ghostty's config file (config, else config.ghostty) and the cursor-fx effect it includes ("off" if none). Read the
+# way cursor-fx and Ghostty read it: an indented line, a quoted path and the optional "?" all count; the last wins.
+ab_ghostty_config() {
+  local c=${XDG_CONFIG_HOME:-$HOME/.config}/ghostty/config
+  [[ -e $c ]] || c+=.ghostty
+  printf '%s\n' "$c"
+}
+ab_cursor_now() {
+  local v
+  v=$(sed -nE 's/^[[:space:]]*config-file[[:space:]]*=[[:space:]]*\??"?\??cursor-effects\/([^."/]+)\.conf.*$/\1/p' \
+      "$(ab_ghostty_config)" 2>/dev/null | tail -n1)
+  printf '%s\n' "${v:-off}"
+}
 
 # cursor-fx copies your Ghostty config into a savepoint folder before every switch, and Afterburn
 # switches it on every edition, quiet and saver change. Keep those out of your home folder (issue #7):
@@ -45,7 +62,8 @@ ab_move_savepoints() {
 
 # The red error symbol of the subtle pack, in starship.toml's [character] section. It belongs to Afterburn: the
 # theme-set hook puts it in on Afterburn and takes it out on any other theme.
-#   starship-error-symbol  your own error_symbol line ("absent" if there was none): written by install.sh, and again
+#   starship-error-symbol  your own error_symbol line ("absent" if [character] had none, "absent-section" if there
+#                          was no [character] at all, so restoring drops the section again): written by install.sh, and again
 #                          whenever ours goes in over a line you changed meanwhile. It is also the record that you
 #                          chose the red prompt, so it stays across theme switches.
 # Our line is recognised by its exact text, so an install from before this change is restored the same way.
@@ -55,12 +73,13 @@ ab_starship_paths() {
   AB_STARSHIP_ORIG="${XDG_STATE_HOME:-$HOME/.local/state}/afterburn/starship-error-symbol"
 }
 
-# Your current error_symbol line in [character] ("absent" if none), on stdout.
+# Your current error_symbol line in [character], as written (indent kept), on stdout. "absent" if [character] has
+# none, "absent-section" if there is no [character]. Headers and keys may be indented (TOML allows it).
 ab_starship_current() {
   awk '
-    /^\[/ { sec = $0; sub(/^\[/, "", sec); sub(/\].*$/, "", sec) }
-    sec == "character" && /^error_symbol[ \t]*=/ { print; found = 1; exit }
-    END { if (!found) print "absent" }
+    /^[ \t]*\[/ { sec = $0; sub(/^[ \t]*\[/, "", sec); sub(/\].*$/, "", sec); if (sec == "character") seen = 1 }
+    sec == "character" && /^[ \t]*error_symbol[ \t]*=/ { print; found = 1; exit }
+    END { if (!found) print (seen ? "absent" : "absent-section") }
   ' "$1"
 }
 
@@ -96,8 +115,8 @@ ab_starship_apply() {
   tmp=$(mktemp "$(dirname "$real")/.starship.XXXXXX") || return 1
   LINE="$AB_STARSHIP_LINE" awk '
     function close_character() { if (sec == "character" && !done) { print ENVIRON["LINE"]; done = 1 } }
-    /^\[/ { close_character(); sec = $0; sub(/^\[/, "", sec); sub(/\].*$/, "", sec); print; next }
-    sec == "character" && /^error_symbol[ \t]*=/ { print ENVIRON["LINE"]; done = 1; next }
+    /^[ \t]*\[/ { close_character(); sec = $0; sub(/^[ \t]*\[/, "", sec); sub(/\].*$/, "", sec); print; next }
+    sec == "character" && /^[ \t]*error_symbol[ \t]*=/ { print ENVIRON["LINE"]; done = 1; next }
     { print }
     END { if (!done) { if (sec == "character") print ENVIRON["LINE"]; else { print ""; print "[character]"; print ENVIRON["LINE"] } } }
   ' "$real" > "$tmp" || { rm -f "$tmp"; return 1; }
@@ -110,15 +129,32 @@ ab_starship_apply() {
 ab_starship_restore() {
   ab_starship_paths
   [[ -f $AB_STARSHIP_ORIG && -f $AB_STARSHIP ]] || return 3
-  grep -qxF "$AB_STARSHIP_LINE" "$AB_STARSHIP" || return 2
-  local real tmp
+  local real tmp rc=0
   real=$(readlink -f "$AB_STARSHIP")
   tmp=$(mktemp "$(dirname "$real")/.starship.XXXXXX") || return 1
+  # Only our line in [character]: the same text in another section is yours. If there was no [character] and ours is
+  # still the section the apply appended at the end, that goes too (with the blank line before it).
   # ENVIRON, not -v: awk -v would turn a backslash in your original line (\u2717, \\) into something else.
   OURS="$AB_STARSHIP_LINE" ORIG="$(cat "$AB_STARSHIP_ORIG")" awk '
-    $0 == ENVIRON["OURS"] && !done { done = 1; if (ENVIRON["ORIG"] != "absent") print ENVIRON["ORIG"]; next }
-    { print }
-  ' "$real" > "$tmp" || { rm -f "$tmp"; return 1; }
+    { line[NR] = $0 }
+    /^[ \t]*\[/ { sec = $0; sub(/^[ \t]*\[/, "", sec); sub(/\].*$/, "", sec) }
+    sec == "character" && $0 == ENVIRON["OURS"] && !hit { hit = NR }
+    END {
+      if (!hit) exit 3
+      orig = ENVIRON["ORIG"]; n = NR
+      if (orig == "absent-section" && hit == n && n >= 2 && line[n - 1] == "[character]") {
+        n -= 2
+        if (n >= 1 && line[n] == "") n--
+        for (i = 1; i <= n; i++) print line[i]
+        exit 0
+      }
+      for (i = 1; i <= NR; i++) {
+        if (i == hit) { if (orig != "absent" && orig != "absent-section") print orig; continue }
+        print line[i]
+      }
+    }
+  ' "$real" > "$tmp" || rc=$?
+  if (( rc )); then rm -f "$tmp"; (( rc == 3 )) && return 2; return 1; fi
   ab_replace_if_changed "$tmp" "$AB_STARSHIP"
 }
 
@@ -208,9 +244,15 @@ ab_load_palette() {
 # State for things that cannot parse colors.toml cheaply (the fail flash in every shell).
 ab_write_palette_env() {
   local d="${XDG_STATE_HOME:-$HOME/.local/state}/afterburn"
+  local tmp
   mkdir -p "$d" || return 0
-  printf 'FLARE=%s\nEMBER=%s\nRUST=%s\nASH=%s\n' "$AB_FLARE" "$AB_EMBER" "$AB_RUST" "$AB_ASH" > "$d/palette.env.tmp" &&
-    mv -f "$d/palette.env.tmp" "$d/palette.env"
+  # A temp file of its own: the hook and `afterburn apply` can both write at once.
+  tmp=$(mktemp "$d/.palette.env.XXXXXX") || return 0
+  if printf 'FLARE=%s\nEMBER=%s\nRUST=%s\nASH=%s\n' "$AB_FLARE" "$AB_EMBER" "$AB_RUST" "$AB_ASH" > "$tmp"; then
+    mv -f "$tmp" "$d/palette.env"
+  else
+    rm -f "$tmp"
+  fi
 }
 
 # Print FILE (a glow template carrying the base theme's colours) in the loaded palette's colours.

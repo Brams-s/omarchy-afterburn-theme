@@ -23,7 +23,7 @@ INSTALL = REPO / "extras" / "install.sh"
 # Real tools the scripts under test call. Everything else must be a stub.
 TOOLS = ("bash awk sed grep cat jq mktemp install chmod cmp mv rm mkdir dirname basename id cp tail head "
          "sort readlink realpath tr date ls find rmdir env cut wc touch ln stat uniq tee sleep "
-         "true false xargs flock").split()
+         "true false xargs flock tty").split()
 
 LOCK_VIEW = """import QtQuick
 Item {
@@ -47,6 +47,7 @@ MANIFEST = json.dumps({
 # --- stub commands (bash). SB = the sandbox root; every call is appended to $SB/calls.log ----------
 STUBS = {
     "omarchy-plugin-list": r'''#!/bin/bash
+[[ ${STUB_LIST_FAIL:-} != 1 ]] || { echo "omarchy-plugin-list: shell not running" >&2; exit 1; }
 echo "ID STATE SOURCE KINDS NAME"
 for f in "$SB"/plugins/*.state; do
   [[ -e $f ]] || continue

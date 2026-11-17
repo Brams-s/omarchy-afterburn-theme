@@ -439,6 +439,30 @@ class BackwardsCompatTests(LockEmbersBase):
         self.assertIn("clone_id=alice.lock", sb.marker.read_text())
         self.assertEqual(sb.enabled_locks(), ["alice.lock"])
 
+    def your_own_clone(self, sb):
+        """A clone you made yourself with `omarchy plugin clone omarchy.lock`: same id and parent, no embers."""
+        sb.add_legacy_clone("alice.lock")
+        (sb.plugins_dir / "alice.lock" / "EmberLayer.qml").unlink()
+        sb.write_state_text(sb.marker, "")
+
+    def test_your_own_user_lock_clone_is_never_removed(self):  # Codex review C1
+        sb = self.make("alice")
+        self.your_own_clone(sb)
+        r = sb.lock("uninstall")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue((sb.plugins_dir / "alice.lock" / "manifest.json").exists())
+        self.assertFalse(any("omarchy-plugin-remove" in c for c in sb.call_log()))
+
+    def test_install_leaves_your_own_user_lock_clone_alone(self):  # Codex review C1
+        sb = self.make("alice")
+        self.your_own_clone(sb)
+        r = sb.lock("install")
+        # Yours is the active lock, so the embers step changes nothing (as for any lock you picked).
+        self.assertIn("nothing changed", r.stdout + r.stderr)
+        self.assertNotIn("clone_id=alice.lock", sb.marker.read_text() if sb.marker.exists() else "")
+        self.assertFalse((sb.plugins_dir / "alice.lock" / "EmberLayer.qml").exists(), "yours is not patched")
+        self.assertEqual(sb.enabled_locks(), ["alice.lock"])
+
     def test_the_marker_id_wins_over_the_username(self):
         sb = self.make("someone-else")
         sb.add_legacy_clone("afterburn.lock")

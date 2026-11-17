@@ -10,6 +10,7 @@ HOOK = REPO / "extras" / "afterburn-theme-set-hook"
 CURSOR_FX = r'''#!/bin/bash
 echo "cursor-fx $*" >> "$SB/calls.log"
 cfg="$HOME/.config/ghostty/config"
+[[ -e $SB/cfx-fails && ${1:-} != subtle ]] && exit 1
 case ${1:-} in
   subtle)
     case ${2:-} in
@@ -127,6 +128,48 @@ class CursorBookkeeping(unittest.TestCase):
                 self.assertEqual(self.sb.call_log(), [])
                 self.assertEqual(self.effect(), "lightning")
                 self.assertEqual((self.sb.state_dir / "prev-cursor-fx").read_text(), "cyber\n")
+
+    # --- what the hook records and restores (Codex review C3) ----------------------------------------
+    def hook(self, theme):
+        self.sb.write_state_text(self.sb.home / ".local/state/omarchy/current/theme.name", theme)
+        r = self.sb.run(["/bin/bash", str(HOOK), theme])
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_a_pick_you_made_on_afterburn_stays_when_you_leave(self):
+        self.hook("afterburn")
+        self.assertEqual(self.effect(), "embers")
+        self.start("neon")                      # you ran `cursor-fx neon`
+        self.hook("nord")
+        self.assertEqual(self.effect(), "neon")
+        self.assertFalse((self.sb.state_dir / "prev-cursor-fx").exists())
+
+    def test_a_failed_switch_records_nothing_as_ours(self):
+        (self.sb.root / "cfx-fails").touch()
+        self.hook("afterburn")
+        self.assertEqual(self.effect(), "lightning")
+        self.assertFalse((self.sb.state_dir / "cursor-fx-set").exists())
+
+    def test_a_failed_restore_keeps_the_effect_to_restore(self):
+        self.hook("afterburn")
+        (self.sb.root / "cfx-fails").touch()
+        self.hook("nord")
+        self.assertEqual((self.sb.state_dir / "prev-cursor-fx").read_text().strip(), "lightning")
+        (self.sb.root / "cfx-fails").unlink()
+        self.hook("catppuccin")                 # the next switch away tries again
+        self.assertEqual(self.effect(), "lightning")
+        self.assertFalse((self.sb.state_dir / "prev-cursor-fx").exists())
+
+    def test_an_indented_quoted_include_is_read_as_cursor_fx_reads_it(self):
+        self.ghostty.write_text('font-size = 9\n  config-file = ?"cursor-effects/neon.conf"\n')
+        self.hook("afterburn")
+        self.assertEqual((self.sb.state_dir / "prev-cursor-fx").read_text().strip(), "neon")
+
+    def test_leaving_while_fullscreen_holds_the_effect_off_still_restores_yours(self):
+        self.hook("afterburn")
+        self.ab("quiet", "on")
+        self.assertEqual(self.effect(), "off")
+        self.hook("nord")
+        self.assertEqual(self.effect(), "lightning")
 
     def test_a_stale_pre_quiet_from_an_older_version_is_cleared_while_only_saver_is_on(self):
         self.sb.write_state_text(self.sb.state_dir / "saver", "on\n")

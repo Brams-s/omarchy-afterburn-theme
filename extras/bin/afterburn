@@ -171,6 +171,17 @@ state_set() { mkdir -p "$STATE"; printf '%s\n' "$2" > "$STATE/$1"; }
 flag_on()   { [[ $(state_get "$1" off) == on ]]; }
 effective_quiet() { flag_on quiet || flag_on saver; }
 
+# Commands that change something run one at a time: the watcher's three loops, the theme-set hook and you can
+# start them together, and two at once could each save the other's state as yours. Taken before the theme name is
+# read, so a command that waited sees the theme as it is now. Reading commands never wait.
+case ${1:-status} in
+  apply|set|unset|level|quiet|saver|laptop)
+    if command -v flock >/dev/null; then
+      mkdir -p "$STATE" && exec 8>"$STATE/afterburn.lck"
+      flock -w "${AFTERBURN_LOCK_WAIT:-60}" 8 || die "another afterburn command is still running; nothing changed, try again"
+    fi ;;
+esac
+
 # Only touch Hyprland and cursor-fx while an Afterburn theme (base or edition) is active.
 THEME_NAME=$(ab_theme_name)
 is_afterburn() { ab_is_afterburn "$THEME_NAME"; }
@@ -261,6 +272,9 @@ cmd_apply() {
     return 0
   fi
   ab_write_palette_env   # the fail flash reads its colours from here
+  # `afterburn laptop on|off` is a standing choice; leaving Afterburn drops the saver flag, so set it again here
+  # (the watcher only decides for LAPTOP_MODE=auto).
+  case ${LAPTOP_MODE:-auto} in on|off) state_set saver "$LAPTOP_MODE" ;; esac
   apply_visuals
 }
 
@@ -273,9 +287,7 @@ cmd_apply() {
 #   had on yourself is never touched.
 CFX_PRE="$STATE/cursor-pre-quiet"
 SUBTLE_REC="$STATE/subtle-by-afterburn"
-cfx_now() {
-  grep -oP '^config-file\s*=\s*\??cursor-effects/\K[^.]+' "$GHOSTTY" 2>/dev/null || echo off
-}
+cfx_now() { ab_cursor_now; }
 
 # on, off, mixed or n/a, as `cursor-fx subtle` reports it ("Subtle version: off (cursor-fx subtle on|off)"); empty if unreadable.
 cfx_subtle_state() {
@@ -315,7 +327,8 @@ apply_extra() {
         # Nothing saved yet (the hook has not run since an older install): the running effect is yours, keep it
         # for the day you leave Afterburn.
         [[ -f $STATE/prev-cursor-fx ]] || cfx_now > "$STATE/prev-cursor-fx"
-        cursor-fx "$CURSOR_FX" >/dev/null 2>&1 || true
+        # Recorded as ours only once it is on (the theme hook relies on that record when you leave).
+        cursor-fx "$CURSOR_FX" >/dev/null 2>&1 || return 0
       fi
       printf '%s\n' "$CURSOR_FX" > "$STATE/cursor-fx-set" ;;
     EMBER_STYLE)
