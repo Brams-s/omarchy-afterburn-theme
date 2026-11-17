@@ -264,7 +264,7 @@ echo
 echo "  Still installed (remove only if you want):"
 if [[ $CFX_NOTE == kept || $CFX_NOTE == mine ]] && command -v cursor-fx >/dev/null; then
   [[ $CFX_NOTE == kept ]] && echo "    cursor-fx:  $0 --remove-cursor-fx   (moves it all to a backup folder)" ||
-    echo "    cursor-fx:  you had it before Afterburn, so it was left alone"
+    echo "    cursor-fx:  not installed by Afterburn (no ~/.local/share/afterburn checkout), so it was left alone"
 fi
 cat <<'EOF'
     Ghostty:    omarchy pkg drop ghostty   (set another default terminal first)
