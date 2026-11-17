@@ -404,11 +404,19 @@ plugin_state() {
 }
 
 # One park, unpark or recolor at a time. The lock goes when the script exits. Without flock, no lock.
+# LOCK_EMBERS_FOR_THEME (set by the theme-set hook): the theme this run is for. Checked again once the lock is held:
+# quick theme switches start several hooks, and one that waited here must not undo what a newer theme's hook did.
 take_lock() {
-  command -v flock >/dev/null || return 0
-  mkdir -p "$STATE_DIR"
-  exec 9>"$STATE_DIR/lock-embers.lck"
-  flock -w 30 9 || say "another lock-embers run held the lock for 30 s; going on"
+  if command -v flock >/dev/null; then
+    mkdir -p "$STATE_DIR"
+    exec 9>"$STATE_DIR/lock-embers.lck"
+    flock -w 30 9 || say "another lock-embers run held the lock for 30 s; going on"
+  fi
+  if [[ -n ${LOCK_EMBERS_FOR_THEME:-} ]] &&
+     [[ $LOCK_EMBERS_FOR_THEME != "$(cat "$HOME/.local/state/omarchy/current/theme.name" 2>/dev/null)" ]]; then
+    say "the theme changed since this run started ($LOCK_EMBERS_FOR_THEME); the newer theme's run takes over"
+    exit 0
+  fi
 }
 
 # Settle CLONE_ID and succeed only when that clone exists and is ours.

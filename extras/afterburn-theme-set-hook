@@ -47,7 +47,7 @@ if ab_is_afterburn "$THEME"; then
   # The edition's knobs: your afterburn.conf first, then its edition.conf, then the base default.
   WANT_FX=embers WANT_STYLE=rise
   # The ember lock comes back if leaving Afterburn parked it (and you have not picked another lock since).
-  if [[ -f $LOCK_MARK && -f $LOCK_SH ]]; then bash "$LOCK_SH" unpark >/dev/null 2>&1 || true; fi
+  if [[ -f $LOCK_MARK && -f $LOCK_SH ]]; then LOCK_EMBERS_FOR_THEME="$THEME" bash "$LOCK_SH" unpark >/dev/null 2>&1 || true; fi
   if declare -F ab_effective >/dev/null; then
     ab_effective CURSOR_FX "$THEME" 2>/dev/null; WANT_FX=$AB_VAL
     ab_effective EMBER_STYLE "$THEME" 2>/dev/null; WANT_STYLE=$AB_VAL
@@ -57,7 +57,7 @@ if ab_is_afterburn "$THEME"; then
     ab_write_palette_env || true
     # Lock embers follow the theme (only when the installer put the embers there).
     if [[ -f $LOCK_MARK && -f $LOCK_SH ]]; then
-      bash "$LOCK_SH" recolor "$AB_FLARE" "$AB_EMBER" "$AB_RUST" "$WANT_STYLE" >/dev/null 2>&1 || true
+      LOCK_EMBERS_FOR_THEME="$THEME" bash "$LOCK_SH" recolor "$AB_FLARE" "$AB_EMBER" "$AB_RUST" "$WANT_STYLE" >/dev/null 2>&1 || true
     fi
   fi
   # The red prompt symbol, if you chose it at install (a no-op when it is already there).
@@ -117,8 +117,8 @@ else
   rm -f "$STATE_DIR/palette.env"
   # The ember lock is Afterburn's: other themes get Omarchy's own lock screen back until you return.
   if [[ -f $LOCK_MARK && -f $LOCK_SH ]]; then
-    bash "$LOCK_SH" recolor >/dev/null 2>&1 || true
-    bash "$LOCK_SH" park >/dev/null 2>&1 || true
+    LOCK_EMBERS_FOR_THEME="$THEME" bash "$LOCK_SH" recolor >/dev/null 2>&1 || true
+    LOCK_EMBERS_FOR_THEME="$THEME" bash "$LOCK_SH" park >/dev/null 2>&1 || true
   fi
 fi
 exit 0

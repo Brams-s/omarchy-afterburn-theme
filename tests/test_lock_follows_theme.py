@@ -82,6 +82,29 @@ class LockFollowsTheme(unittest.TestCase):
         self.assertEqual(len(locks), 1, locks)
         self.assertEqual(self.parked.exists(), locks == ["omarchy.lock"])
 
+    def test_a_hook_for_a_superseded_theme_changes_nothing(self):
+        """Quick switches: a hook for nord that waited for the lock runs after the newer afterburn hook unparked.
+        Seen on a real machine: without the check, it parked the lock while Afterburn was the theme."""
+        self.hook("afterburn")
+        r = self.sb.lock("park", LOCK_EMBERS_FOR_THEME="nord")    # theme.name is afterburn now
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.sb.enabled_locks(), ["afterburn.lock"])
+        self.hook("nord")
+        r = self.sb.lock("unpark", LOCK_EMBERS_FOR_THEME="afterburn")
+        self.assertEqual(self.sb.enabled_locks(), ["omarchy.lock"])
+
+    def test_quick_hooks_end_on_the_last_theme(self):
+        name = self.sb.home / ".local/state/omarchy/current/theme.name"
+        procs = []
+        for theme in ("nord", "afterburn", "tokyo-night", "afterburn-redline", "nord", "afterburn"):
+            self.sb.write_state_text(name, theme)
+            procs.append(subprocess.Popen(["/bin/bash", str(HOOK), theme], env=self.sb.env(),
+                                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+        for p in procs:
+            p.wait(timeout=60)
+        self.assertEqual(self.sb.enabled_locks(), ["afterburn.lock"])
+        self.assertFalse(self.parked.exists())
+
     # --- failures keep a lock ------------------------------------------------------------------------
     def test_a_failed_park_keeps_the_clone(self):
         self.hook("nord", STUB_ENABLE_FAIL="1")
