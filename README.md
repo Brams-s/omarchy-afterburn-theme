@@ -2,7 +2,7 @@
 
 ![Afterburn](preview.png)
 
-**Orange-on-black cyber theme for [Omarchy](https://omarchy.org).** Ember-gradient window borders with a soft orange glow, animated ember cursors in Ghostty, and nineteen wallpapers: eleven stills and eight live loops across all six colours. Comes in six colours, each with its own personality: Afterburn (orange), Voltage (cyan), Cyber (green), Overdrive (magenta), Redline (red) and Phantom (violet). See [Editions](#editions).
+**Orange-on-black cyber theme for [Omarchy](https://omarchy.org).** Ember-gradient window borders with a soft orange glow, animated ember cursors in Ghostty, and nineteen wallpapers: eleven stills and eight live loops across all six colours. Comes in six colours plus a light edition, each with its own personality: Afterburn (orange), Voltage (cyan), Cyber (green), Overdrive (magenta), Redline (red), Phantom (violet) and Lite (burnt orange on warm paper). See [Editions](#editions).
 
 ## Install: the full stack (recommended)
 
@@ -38,88 +38,8 @@ You get the colors, the ember-gradient borders, the wallpapers and the icons. Th
 - Omarchy 4.x (tested on 4.5.0, Hyprland 0.56).
 - Ghostty is optional: the cursor effects need it, and the installer offers to install it.
 - bash, for the fail flash (the red-prompt effect after a failed command).
-
-## Undo
-
-```bash
-~/.config/omarchy/themes/afterburn/extras/uninstall.sh
-```
-
-It removes only what the installer created and puts your previous terminal, font and cursor effect back. It leaves the terminal and font alone if you changed them since the install. It restores the cursor effect from before the install, unless you picked a different one yourself since: that one stays. If you had no terminal list before, it removes the one the installer made, but only if Ghostty is its only entry. Your `afterburn.conf` is kept as `afterburn.conf.bak` (`.bak.1`, `.bak.2`, ... if a backup is already there; an earlier backup is never overwritten). The table in [What the full stack changes](#what-the-full-stack-changes) lists the undo for each piece.
-
-## Update
-
-```bash
-omarchy theme update
-~/.config/omarchy/themes/afterburn/extras/install.sh
-```
-
-Run the installer again so the hook and the service copies refresh. Installed edition folders keep their existing files; the installer only adds files they lack.
-
-**Installed before 12 November 2026?** The repository's history was rewritten that day to drop about 85 MiB of replaced wallpapers from every download. For an older install, `omarchy theme update` (a `git pull`) fails or stops with a git error about divergent or unrelated histories, or about not being able to fast-forward. The exact words depend on your git pull settings. With `pull.rebase=true` it may even look like it worked. Run this once either way, then update as above from then on:
-
-```bash
-git -C ~/.config/omarchy/themes/afterburn fetch --prune --prune-tags --force origin
-git -C ~/.config/omarchy/themes/afterburn reset --hard origin/main
-~/.config/omarchy/themes/afterburn/extras/install.sh
-```
-
-Your settings in `${XDG_CONFIG_HOME:-~/.config}/afterburn` are kept. The reset replaces only the theme folder's tracked files, so it discards any edits you made inside that folder. The installer run makes the hook and watcher copies match the new files.
-
-To also free the old 85 MiB from that folder, run:
-
-```bash
-git -C ~/.config/omarchy/themes/afterburn reflog expire --expire=now --all
-git -C ~/.config/omarchy/themes/afterburn gc --prune=now
-```
-
-The clean alternative is `omarchy theme install https://github.com/silverwulf212/omarchy-afterburn-theme`. It clones from scratch and switches the active theme to base Afterburn. Then run the installer as above, otherwise the hook and watcher copies stay old.
-
-## New edition wallpapers
-
-![New Voltage, Cyber, Overdrive, Redline and Phantom wallpaper artwork](docs/wallpapers/preview.jpg)
-
-Full-resolution **theme backgrounds**, including the animated MP4s:
-
-| Edition | Wallpaper | Still | Animated wallpaper |
-|---|---|---|---|
-| Afterburn | Horizon | [JPG](backgrounds/1-horizon.jpg) | [MP4](backgrounds/9-horizon-live.mp4) |
-| Voltage | Resonance | [JPG](backgrounds/voltage-resonance.jpg) | [MP4](backgrounds/voltage-resonance-live.mp4) |
-| Cyber | Phosphor Path | [JPG](backgrounds/cyber-phosphor-path.jpg) | [MP4](backgrounds/cyber-phosphor-path-live.mp4) |
-| Overdrive | Midnight Ribbon | [JPG](backgrounds/overdrive-midnight-ribbon.jpg) | [MP4](backgrounds/overdrive-midnight-ribbon-live.mp4) |
-| Redline | Crimson Turbine | [JPG](backgrounds/redline-crimson-turbine.jpg) | [MP4](backgrounds/redline-crimson-turbine-live.mp4) |
-| Phantom | Spectral Veil | [JPG](backgrounds/phantom-spectral-veil.jpg) | [MP4](backgrounds/phantom-spectral-veil-live.mp4) |
-
-[Browse every background and download the original files](WALLPAPERS.md). All six colours are directly available in [`backgrounds/`](backgrounds/). Each colour edition also keeps its own default and live loop in `.editions/<name>/backgrounds/`.
-
-## Theme-selector previews
-
-All six selector thumbnails show each theme's actual default wallpaper. The
-Afterburn wordmark is reserved for boot/login artwork.
-
-For an existing installation, update the checkout and refresh only its selector
-images (rerunning the extras installer preserves existing preview files). If you
-installed before 12 November 2026, run the one-time fix under Update first; a plain
-`git pull --ff-only` fails on the rewritten history.
-
-```bash
-cd ~/.config/omarchy/themes/afterburn
-git pull --ff-only
-python3 tools/wallpapers/selector-previews.py install
-```
-
-This generates thumbnails from each installed theme's own `backgrounds/1-horizon.jpg`,
-backs up changed `preview.png` files under `~/.local/state/afterburn/preview-backups/`,
-and preserves custom preview symlinks. Close and reopen the theme selector afterward.
-To undo, restore the saved `preview.png` files from the printed backup folder.
-
-## Watch
-
-| [![Six editions](docs/media/watch-editions.jpg)](https://github.com/SilverWulf212/omarchy-afterburn-theme/releases/download/v1.0.0/editions.mp4) | [![Launch v2](docs/media/watch-brag-v2.jpg)](https://github.com/SilverWulf212/omarchy-afterburn-theme/releases/download/v1.0.0/brag-v2.mp4) | [![Original launch](docs/media/watch-brag.jpg)](https://github.com/SilverWulf212/omarchy-afterburn-theme/releases/download/v1.0.0/brag.mp4) |
-|---|---|---|
-| **Six editions** (57 s) | **Launch v2** (69 s) | **Original launch** (39 s) |
-
-Click a thumbnail to play or download the video from the [v1.0.0 release](https://github.com/SilverWulf212/omarchy-afterburn-theme/releases/tag/v1.0.0). Music: Sascha Ende, ende.app, CC BY 4.0.
+- For the full stack: `git` and network access (it clones cursor-fx), and `sudo` only to install Ghostty with pacman or to change the boot and login screen.
+- Optional tools: `python3` and ImageMagick (`magick`) to refresh the [theme-selector previews](#theme-selector-previews), `uv` to re-render the code-made wallpapers. The weather heat source works in the US only.
 
 ## What the full stack changes
 
@@ -153,6 +73,47 @@ Click a thumbnail to play or download the video from the [v1.0.0 release](https:
 - **The boot and login screen is not undone silently.** If you said yes to it, `uninstall.sh` asks before running `omarchy-plymouth-reset` (needs `sudo`), and prints that command if it gets no answer.
 - **No warranty.** This is a personal hobby project, provided as is under the MIT licence. The installer changes your dotfiles, so commit or back them up first if you keep them in git.
 - **Not affiliated** with Omarchy, Basecamp, Ghostty, Termix or Avarce. Their names are used here only to give credit and to say what this works with.
+
+## Undo
+
+```bash
+~/.config/omarchy/themes/afterburn/extras/uninstall.sh
+```
+
+It removes only what the installer created and puts your previous terminal, font and cursor effect back. It leaves the terminal and font alone if you changed them since the install. It restores the cursor effect from before the install, unless you picked a different one yourself since: that one stays. If you had no terminal list before, it removes the one the installer made, but only if Ghostty is its only entry. Your `afterburn.conf` is kept as `afterburn.conf.bak` (`.bak.1`, `.bak.2`, ... if a backup is already there; an earlier backup is never overwritten). The table in [What the full stack changes](#what-the-full-stack-changes) lists the undo for each piece.
+
+## Update
+
+```bash
+omarchy theme update
+~/.config/omarchy/themes/afterburn/extras/install.sh
+```
+
+Run the installer again so the hook and the service copies refresh. Installed edition folders keep their existing files; the installer only adds files they lack.
+
+<details>
+<summary><b>Installed before 12 November 2026?</b> If <code>omarchy theme update</code> fails with a git error about divergent or unrelated histories, or about not being able to fast-forward, open this.</summary>
+
+The repository's history was rewritten that day to drop about 85 MiB of replaced wallpapers from every download. For an older install, `omarchy theme update` (a `git pull`) fails or stops with a git error about divergent or unrelated histories, or about not being able to fast-forward. The exact words depend on your git pull settings. With `pull.rebase=true` it may even look like it worked. Run this once either way, then update as above from then on:
+
+```bash
+git -C ~/.config/omarchy/themes/afterburn fetch --prune --prune-tags --force origin
+git -C ~/.config/omarchy/themes/afterburn reset --hard origin/main
+~/.config/omarchy/themes/afterburn/extras/install.sh
+```
+
+Your settings in `${XDG_CONFIG_HOME:-~/.config}/afterburn` are kept. The reset replaces only the theme folder's tracked files, so it discards any edits you made inside that folder. The installer run makes the hook and watcher copies match the new files.
+
+To also free the old 85 MiB from that folder, run:
+
+```bash
+git -C ~/.config/omarchy/themes/afterburn reflog expire --expire=now --all
+git -C ~/.config/omarchy/themes/afterburn gc --prune=now
+```
+
+The clean alternative is `omarchy theme install https://github.com/silverwulf212/omarchy-afterburn-theme`. It clones from scratch and switches the active theme to base Afterburn. Then run the installer as above, otherwise the hook and watcher copies stay old.
+
+</details>
 
 ## Subtle pack
 
@@ -219,7 +180,7 @@ The same theme in five more colours plus one light edition, and each has a perso
 - **Cyber:** the data-rain `cyber` cursor (glyph rain, every typed character burns in green); the live wallpaper `live-phosphor-path` (acid-green circuitry with slow optical drift and phosphor light); slow falling rain on the lock screen; a phosphor btop theme and an acid-green Neovim palette.
 - **Overdrive:** the neon-tube cursor; the live wallpaper `live-midnight-ribbon` (a magenta highway with gently moving reflections); lock-screen embers that swell on a beat; a hot-pink Neovim palette.
 - **Redline:** the katana-slash cursor; the live wallpaper `live-crimson-turbine` (black titanium, a crimson ring and restrained heat shimmer); sudden sparks and stillness on the lock screen; btop meters that run brown, red, white-hot.
-- **Lite:** the light one, for daylight and bright rooms. A hand-made palette on warm paper `#f5efe4` where body text, the accent and the ANSI colours (with their bright variants) are at least 4.5:1 against it, muted and secondary text is deliberately fainter at about 3:1 and `orange` is 3.75:1; the base stills reprinted as ink on that paper; two wallpapers of its own, `1-horizon` (an engraved contrail) and `8-heat-shield` (ceramic tiles with heat in the seams); the live wallpaper `live-heat-shield` (the seams glow, shimmer and settle); a short warm shadow instead of a glow, and a hot heat level that deepens the ink instead of whitening it. Its art stays out of the shared `backgrounds/` folder, where a bright wallpaper would jar.
+- **Lite:** the light one, for daylight and bright rooms. A hand-made palette on warm paper `#f5efe4` where body text, the accent and the ANSI colours (with their bright variants) are at least 4.5:1 against it, muted and secondary text is deliberately fainter at about 3:1 and `orange` is 3.75:1; the base stills reprinted as ink on that paper; three wallpapers of its own, `1-horizon` (an engraved contrail), `7-sunprint` and `8-heat-shield` (ceramic tiles with heat in the seams); the live wallpaper `live-heat-shield` (the seams glow, shimmer and settle); a short warm shadow instead of a glow, and a hot heat level that deepens the ink instead of whitening it. Its art stays out of the shared `backgrounds/` folder, where a bright wallpaper would jar.
 - **Phantom:** the hologram cursor; the live wallpaper `live-spectral-veil` (translucent violet folds with a slow flowing ripple); wisps that fade in and out on the lock screen; the heaviest dimming of background windows.
 
 The installer's edition question (step 6) copies them next to the base theme. Switch with the Omarchy theme menu or `omarchy theme set afterburn-voltage`. `omarchy theme install` alone installs only the base theme: the editions sit in its hidden `.editions/` folder as plain theme directories, so without the installer, copy one to `~/.config/omarchy/themes/afterburn-<name>` yourself (you get its colours, wallpapers, icons, btop and Neovim themes, and its own gradient border and shadow from its `hyprland.lua`, because Omarchy drops `.lua` files only for git-cloned themes; the heat levels, border turn, cursor effect and lock embers still need the extras).
@@ -256,7 +217,7 @@ Eleven still wallpapers at 3440×1440, plus eight live loops, all directly in `b
 | `4-nozzle`: afterburner nozzle | `5-flow`: light trails over a night city | `6-ember`: macro shot of a glowing ember |
 | `7-nozzle-live` (live) | `8-ember-live` (live) | `9-horizon-live` (live) |
 
-**Live loops** (`backgrounds/7-nozzle-live.mp4`, `8-ember-live.mp4`, `9-horizon-live.mp4`) play natively through Omarchy's OWE wallpaper engine, so they need no install step. They pause in fullscreen and follow OWE's battery policy. Heat levels change the borders and glow but keep the live loops as they are. Each [colour edition](#editions) has one bespoke 12 s live loop, named `live-*`, and a matching default still. The three base live loops stay exclusive to orange Afterburn. See [the artwork guide](docs/wallpapers/README.md) for the images, motion, full generation prompts, rebuild commands and installed-theme update instructions. The name sorts after the stills in every locale (a `10-` name would sort first in en_US, because Omarchy picks the first file of a theme), so a theme still opens on its still wallpaper, which is what the heat levels swap.
+**Live loops** (`backgrounds/7-nozzle-live.mp4`, `8-ember-live.mp4`, `9-horizon-live.mp4`) play natively through Omarchy's OWE wallpaper engine, so they need no install step. They pause in fullscreen and follow OWE's battery policy. Heat levels change the borders and glow but keep the live loops as they are. Each [colour edition](#editions) has one bespoke 12 s live loop and a matching default still: named `live-*` inside the edition's own `backgrounds/`, and `<edition>-<name>-live.mp4` in the shared `backgrounds/`. The three base live loops stay exclusive to orange Afterburn. See [the artwork guide](docs/wallpapers/README.md) for the images, motion, full generation prompts, rebuild commands and installed-theme update instructions. The name sorts after the stills in every locale (a `10-` name would sort first in en_US, because Omarchy picks the first file of a theme), so a theme still opens on its still wallpaper, which is what the heat levels swap.
 
 **Memory:** still wallpapers cost nothing extra. A playing live loop costs about 350 MB of RAM and about 500 MB of video memory, in Omarchy's own renderer (`owe-render`); the figure is the same for every loop, and it is freed about two minutes after you switch back to a still. The watcher service (`afterburn-watch`) uses about 7 MB.
 
@@ -267,6 +228,50 @@ Eleven still wallpapers at 3440×1440, plus eight live loops, all directly in `b
 ```bash
 uv run --with numpy --with pillow python extras/wallpaper-gen.py backgrounds
 ```
+
+## New edition wallpapers
+
+![New Voltage, Cyber, Overdrive, Redline and Phantom wallpaper artwork](docs/wallpapers/preview.jpg)
+
+Full-resolution **theme backgrounds**, including the animated MP4s:
+
+| Edition | Wallpaper | Still | Animated wallpaper |
+|---|---|---|---|
+| Afterburn | Horizon | [JPG](backgrounds/1-horizon.jpg) | [MP4](backgrounds/9-horizon-live.mp4) |
+| Voltage | Resonance | [JPG](backgrounds/voltage-resonance.jpg) | [MP4](backgrounds/voltage-resonance-live.mp4) |
+| Cyber | Phosphor Path | [JPG](backgrounds/cyber-phosphor-path.jpg) | [MP4](backgrounds/cyber-phosphor-path-live.mp4) |
+| Overdrive | Midnight Ribbon | [JPG](backgrounds/overdrive-midnight-ribbon.jpg) | [MP4](backgrounds/overdrive-midnight-ribbon-live.mp4) |
+| Redline | Crimson Turbine | [JPG](backgrounds/redline-crimson-turbine.jpg) | [MP4](backgrounds/redline-crimson-turbine-live.mp4) |
+| Phantom | Spectral Veil | [JPG](backgrounds/phantom-spectral-veil.jpg) | [MP4](backgrounds/phantom-spectral-veil-live.mp4) |
+
+[Browse every background and download the original files](WALLPAPERS.md). All six colours are directly available in [`backgrounds/`](backgrounds/). Each colour edition also keeps its own default and live loop in `.editions/<name>/backgrounds/`.
+
+## Theme-selector previews
+
+All seven selector thumbnails (the six colours and Lite) show each theme's actual default wallpaper. The
+Afterburn wordmark is reserved for boot/login artwork.
+
+For an existing installation, update the theme and refresh only its selector
+images (rerunning the extras installer preserves existing preview files). If you
+installed before 12 November 2026, run the one-time fix under [Update](#update) first.
+
+```bash
+omarchy theme update
+python3 ~/.config/omarchy/themes/afterburn/tools/wallpapers/selector-previews.py install
+```
+
+This generates thumbnails from each installed theme's own `backgrounds/1-horizon.jpg`,
+backs up changed `preview.png` files under `~/.local/state/afterburn/preview-backups/`,
+and preserves custom preview symlinks. Close and reopen the theme selector afterward.
+To undo, restore the saved `preview.png` files from the printed backup folder.
+
+## Watch
+
+| [![Six editions](docs/media/watch-editions.jpg)](https://github.com/SilverWulf212/omarchy-afterburn-theme/releases/download/v1.0.0/editions.mp4) | [![Launch v2](docs/media/watch-brag-v2.jpg)](https://github.com/SilverWulf212/omarchy-afterburn-theme/releases/download/v1.0.0/brag-v2.mp4) | [![Original launch](docs/media/watch-brag.jpg)](https://github.com/SilverWulf212/omarchy-afterburn-theme/releases/download/v1.0.0/brag.mp4) |
+|---|---|---|
+| **Six editions** (57 s) | **Launch v2** (69 s) | **Original launch** (39 s) |
+
+Click a thumbnail to play or download the video from the [v1.0.0 release](https://github.com/SilverWulf212/omarchy-afterburn-theme/releases/tag/v1.0.0). Music: Sascha Ende, ende.app, CC BY 4.0.
 
 ## Credits
 
