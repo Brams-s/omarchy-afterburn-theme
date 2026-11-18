@@ -23,10 +23,12 @@ Loader {
     showFiles: false
   }
 
+  // The folder's own URL from the model, not `folder + name`: Quickshell gives `folder` without a trailing slash,
+  // which would run the two together (.../afterburn.lockembers.<n>) and load nothing (issue #5).
   function newest() {
     for (var i = versions.count - 1; i >= 0; i--) {
       var name = versions.get(i, "fileName")
-      if (name.startsWith("embers.")) return versions.folder + name + "/Embers.qml"
+      if (name.startsWith("embers.")) return versions.get(i, "fileUrl") + "/Embers.qml"
     }
     return ""
   }

@@ -13,6 +13,11 @@
 #            enabled again, so you are never left without a lock screen.
 # uninstall: remove the clone with omarchy-plugin-remove (which restores omarchy.lock
 #            when the clone was active), then make sure omarchy.lock is enabled.
+# park:      on leaving Afterburn (run by the theme-set hook): make omarchy.lock the active lock
+#            again and the clone inactive, and remember that in afterburn/lock-parked. Only when the
+#            clone is the active lock. If omarchy.lock does not come on, the clone stays on.
+# unpark:    on coming back to Afterburn: make the clone the active lock again, but only if it was
+#            parked and omarchy.lock is still the active one (a lock you picked meanwhile stays yours).
 #
 # The clone id. omarchy-plugin-clone names the clone "$USER.lock" and takes no id argument, so a
 # user called "omarchy" would get "omarchy.lock": the built-in's own id, which the shell rejects.
@@ -31,6 +36,9 @@
 #            fall, drift, spark, pulse or burst (styles/<STYLE>.qml). An unknown STYLE gives rise.
 #            Run by the theme-set hook so the embers follow the theme or edition.
 #            Does nothing unless the clone exists and is ours.
+#
+# park, unpark and recolor take a lock (flock on afterburn/lock-embers.lck): the hook can run detached, so
+# quick theme switches would otherwise run them at the same time.
 #
 # Install and uninstall are idempotent. Re-running install on an existing clone refreshes
 # EmberLayer.qml and the embers and does not insert a second layer.
@@ -52,6 +60,7 @@ LEGACY_ID="${USER:-$(id -un)}.lock"   # what installs made before the id change 
 CLONE_ID=""                            # settled by resolve_clone_id
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/afterburn"
 MARKER="$STATE_DIR/lock-embers"       # exists while the embers are installed; holds clone_id=<id>
+PARKED="$STATE_DIR/lock-parked"       # exists while park has switched the clone off for a non-Afterburn theme
 PLUGINS_DIR="${LOCK_EMBERS_PLUGINS_DIR:-$HOME/.config/omarchy/plugins}"
 OMARCHY_ROOT="${LOCK_EMBERS_OMARCHY_PATH:-/usr/share/omarchy}"
 OFFICIAL_LOCK_DIR="$OMARCHY_ROOT/shell/plugins/lock"
@@ -144,7 +153,10 @@ resolve_clone_id() {
     if usable_id "$m"; then CLONE_ID=$m; return 0; fi
     say "ignoring clone_id '$m' in $MARKER (not a usable plugin id)"
   fi
-  if usable_id "$LEGACY_ID" && [[ -d $PLUGINS_DIR/$LEGACY_ID ]] && is_our_clone "$PLUGINS_DIR/$LEGACY_ID"; then
+  # The id and parent alone also fit a clone you made yourself (`omarchy plugin clone omarchy.lock` names it
+  # "$USER.lock" too): only one with Afterburn's embers layer in it is ours.
+  if usable_id "$LEGACY_ID" && [[ -d $PLUGINS_DIR/$LEGACY_ID && -f $PLUGINS_DIR/$LEGACY_ID/EmberLayer.qml ]] &&
+     is_our_clone "$PLUGINS_DIR/$LEGACY_ID"; then
     CLONE_ID=$LEGACY_ID
     return 0
   fi
@@ -360,7 +372,7 @@ uninstall_layer() {
   else
     # No clone means lock-embers is not installed (or the clone was removed by hand): leave whatever lock is active alone.
     say "no clone $CLONE_ID, nothing to remove"
-    rm -f "$MARKER"
+    rm -f "$MARKER" "$PARKED"
     return 0
   fi
 
@@ -381,18 +393,104 @@ uninstall_layer() {
       say "your lock screen is ${other:-one we cannot identify}; leaving it as it is"
     fi
   fi
-  rm -f "$MARKER"
+  rm -f "$MARKER" "$PARKED"
   # Non-zero tells uninstall.sh the lock screen was not restored.
   (( failed == 0 )) || return 1
   say "uninstalled"
+}
+
+# The state of plugin $1 in the shell's list: enabled or disabled. Empty when it is not listed or the list fails.
+plugin_state() {
+  local list
+  list=$(omarchy-plugin-list 2>/dev/null) || return 0
+  awk -v id="$1" '$1 == id { print $2; exit }' <<<"$list"
+}
+
+# One park, unpark or recolor at a time. The lock goes when the script exits. Without flock, no lock.
+# LOCK_EMBERS_FOR_THEME (set by the theme-set hook): the theme this run is for. Checked again once the lock is held:
+# quick theme switches start several hooks, and one that waited here must not undo what a newer theme's hook did.
+take_lock() {
+  if command -v flock >/dev/null; then
+    mkdir -p "$STATE_DIR"
+    exec 9>"$STATE_DIR/lock-embers.lck"
+    # Never go on without it: an unlocked run could undo a newer one. The next theme change tries again.
+    flock -w "${LOCK_EMBERS_WAIT:-120}" 9 ||
+      die "another lock-embers run held the lock for ${LOCK_EMBERS_WAIT:-120} s; nothing changed (the next theme change tries again)"
+  fi
+  if [[ -n ${LOCK_EMBERS_FOR_THEME:-} ]] &&
+     [[ $LOCK_EMBERS_FOR_THEME != "$(cat "$HOME/.local/state/omarchy/current/theme.name" 2>/dev/null)" ]]; then
+    say "the theme changed since this run started ($LOCK_EMBERS_FOR_THEME); the newer theme's run takes over"
+    exit 0
+  fi
+}
+
+# Settle CLONE_ID and succeed only when that clone exists and is ours.
+have_our_clone() {
+  resolve_clone_id
+  usable_id "$CLONE_ID" && [[ -d $PLUGINS_DIR/$CLONE_ID ]] && is_our_clone "$PLUGINS_DIR/$CLONE_ID"
+}
+
+# Leaving Afterburn: the built-in lock comes back on, the clone goes off. At every step a lock stays enabled:
+# the clone is only switched off once omarchy.lock is confirmed on.
+park_layer() {
+  [[ -f $MARKER ]] || return 0
+  have_our_clone || { say "no clone of ours, nothing to park"; return 0; }
+  if [[ $(plugin_state "$CLONE_ID") != enabled ]]; then
+    say "$CLONE_ID is not the active lock screen, nothing to park"
+    return 0
+  fi
+  if ! omarchy-plugin-enable "$SOURCE_ID" >/dev/null 2>&1 || [[ $(plugin_state "$SOURCE_ID") != enabled ]]; then
+    # Never leave neither on: if the clone went off anyway, put it back.
+    [[ $(plugin_state "$CLONE_ID") == enabled ]] || omarchy-plugin-enable "$CLONE_ID" >/dev/null 2>&1 || true
+    die "could not make $SOURCE_ID the active lock screen; $CLONE_ID stays"
+  fi
+  # Omarchy's shell keeps one lock at a time today. If it ever stops doing so, switch the clone off here.
+  if [[ $(plugin_state "$CLONE_ID") == enabled ]]; then
+    omarchy-plugin-disable "$CLONE_ID" >/dev/null 2>&1 || say "could not disable $CLONE_ID (both locks are on)"
+  fi
+  mkdir -p "$STATE_DIR"
+  printf 'clone_id=%s\n' "$CLONE_ID" > "$PARKED"
+  say "parked $CLONE_ID; $SOURCE_ID is the lock screen until you switch back to Afterburn"
+}
+
+# Back on Afterburn: the clone comes back on, but only if it was parked and the built-in lock is still the one in
+# use. A failed switch keeps the parked flag, so the next theme change tries again.
+unpark_layer() {
+  [[ -f $PARKED ]] || return 0
+  if ! have_our_clone; then
+    say "no clone of ours, nothing to unpark"
+    rm -f "$PARKED"
+    return 0
+  fi
+  local rc=0 src
+  other_lock_enabled >/dev/null || rc=$?
+  src=$(plugin_state "$SOURCE_ID")
+  # A list that failed is "cannot tell", not "you changed it": keep the park record for the next try.
+  [[ $rc != 2 && -n $src ]] || die "cannot tell which lock screens are enabled; trying again on the next theme change"
+  if [[ $src != enabled ]] || (( rc == 0 )); then
+    say "your lock screen changed while Afterburn was away; leaving it"
+    rm -f "$PARKED"
+    return 0
+  fi
+  if ! omarchy-plugin-enable "$CLONE_ID" >/dev/null 2>&1 || [[ $(plugin_state "$CLONE_ID") != enabled ]]; then
+    [[ $(plugin_state "$SOURCE_ID") == enabled ]] || omarchy-plugin-enable "$SOURCE_ID" >/dev/null 2>&1 || true
+    die "could not make $CLONE_ID the active lock screen; $SOURCE_ID stays"
+  fi
+  if [[ $(plugin_state "$SOURCE_ID") == enabled ]]; then
+    omarchy-plugin-disable "$SOURCE_ID" >/dev/null 2>&1 || say "could not disable $SOURCE_ID (both locks are on)"
+  fi
+  rm -f "$PARKED"
+  say "$CLONE_ID is the lock screen again"
 }
 
 main() {
   case "${1:-}" in
     install) install_layer ;;
     uninstall) uninstall_layer ;;
-    recolor) shift; recolor_layer "$@" ;;
-    *) die "usage: $(basename "$0") install|uninstall|recolor [FLARE EMBER RUST [STYLE]]" ;;
+    recolor) shift; take_lock; recolor_layer "$@" ;;
+    park) take_lock; park_layer ;;
+    unpark) take_lock; unpark_layer ;;
+    *) die "usage: $(basename "$0") install|uninstall|park|unpark|recolor [FLARE EMBER RUST [STYLE]]" ;;
   esac
 }
 

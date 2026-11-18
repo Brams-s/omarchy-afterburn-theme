@@ -7,6 +7,8 @@ from support import THEME_SH, UNINSTALL, Sandbox
 # The line every release since the subtle pack has written. Pinned, so a change here is a decision.
 LINE = ('[[ -f "$HOME/.config/omarchy/themes/afterburn/extras/afterburn-fail.bash" ]] && '
         'source "$HOME/.config/omarchy/themes/afterburn/extras/afterburn-fail.bash"  # afterburn')
+CFX_LINE = ('[[ -f "$HOME/.config/omarchy/themes/afterburn/extras/cursor-fx-enter.bash" ]] && '
+            'source "$HOME/.config/omarchy/themes/afterburn/extras/cursor-fx-enter.bash"  # afterburn cursor-fx')
 
 
 class UninstallKeepsYourThings(unittest.TestCase):
@@ -22,6 +24,15 @@ class UninstallKeepsYourThings(unittest.TestCase):
     def test_the_installer_line_is_the_pinned_one(self):
         r = self.sb.run(["/bin/bash", "-c", f'source "{THEME_SH}"; printf %s "$AB_BASHRC_LINE"'])
         self.assertEqual(r.stdout, LINE)
+        r = self.sb.run(["/bin/bash", "-c", f'source "{THEME_SH}"; printf %s "$AB_CFX_BASHRC_LINE"'])
+        self.assertEqual(r.stdout, CFX_LINE)
+
+    def test_bashrc_loses_both_installer_lines_only(self):
+        rc = self.sb.home / ".bashrc"
+        rc.write_text(f"alias ll='ls -l'\n{CFX_LINE}\nexport X=1\n{LINE}\n")
+        r = self.uninstall()
+        self.assertEqual(rc.read_text(), "alias ll='ls -l'\nexport X=1\n")
+        self.assertIn("cursor-fx Enter line removed", r.stdout)
 
     def test_settings_are_kept_as_a_bak_file(self):
         conf = self.sb.home / ".config" / "afterburn" / "afterburn.conf"
@@ -56,12 +67,28 @@ class UninstallKeepsYourThings(unittest.TestCase):
         self.uninstall()
         self.assertEqual(rc.read_text(), f"alias ll='ls -l'\n{mine}\n# afterburn\n")
 
+    def test_a_cursor_effect_you_picked_yourself_is_kept(self):  # Codex review C3
+        self.sb.write_state_text(self.sb.home / ".config/ghostty/config", "config-file = cursor-effects/neon.conf\n")
+        self.sb.write_state_text(self.sb.state_dir / "prev-cursor-fx", "lightning\n")
+        self.sb.write_state_text(self.sb.state_dir / "cursor-fx-set", "embers\n")
+        r = self.uninstall()
+        self.assertNotIn("cursor-fx lightning", self.sb.call_log())
+        self.assertIn("kept neon", r.stdout)
+
+    def test_afterburns_own_cursor_effect_is_replaced_by_yours(self):
+        self.sb.write_state_text(self.sb.home / ".config/ghostty/config", "config-file = cursor-effects/embers.conf\n")
+        self.sb.write_state_text(self.sb.state_dir / "prev-cursor-fx", "lightning\n")
+        self.sb.write_state_text(self.sb.state_dir / "cursor-fx-set", "embers\n")
+        r = self.uninstall()
+        self.assertIn("cursor-fx lightning", self.sb.call_log())
+        self.assertIn("✓ cursor effect restored", r.stdout)
+
     def test_bashrc_with_only_foreign_marker_lines_is_untouched(self):
         rc = self.sb.home / ".bashrc"
         rc.write_text("export A=1  # afterburn\n")
         r = self.uninstall()
         self.assertEqual(rc.read_text(), "export A=1  # afterburn\n")
-        self.assertNotIn("~/.bashrc line removed", r.stdout)
+        self.assertNotIn("✓ ~/.bashrc", r.stdout)
 
 
 class UninstallKeepsYourLaterChoices(unittest.TestCase):

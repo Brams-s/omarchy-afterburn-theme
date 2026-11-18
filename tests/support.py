@@ -23,7 +23,7 @@ INSTALL = REPO / "extras" / "install.sh"
 # Real tools the scripts under test call. Everything else must be a stub.
 TOOLS = ("bash awk sed grep cat jq mktemp install chmod cmp mv rm mkdir dirname basename id cp tail head "
          "sort readlink realpath tr date ls find rmdir env cut wc touch ln stat uniq tee sleep "
-         "true false xargs").split()
+         "true false xargs flock tty").split()
 
 LOCK_VIEW = """import QtQuick
 Item {
@@ -47,6 +47,7 @@ MANIFEST = json.dumps({
 # --- stub commands (bash). SB = the sandbox root; every call is appended to $SB/calls.log ----------
 STUBS = {
     "omarchy-plugin-list": r'''#!/bin/bash
+[[ ${STUB_LIST_FAIL:-} != 1 ]] || { echo "omarchy-plugin-list: shell not running" >&2; exit 1; }
 echo "ID STATE SOURCE KINDS NAME"
 for f in "$SB"/plugins/*.state; do
   [[ -e $f ]] || continue
@@ -60,11 +61,18 @@ echo "omarchy-plugin-enable $*" >> "$SB/calls.log"
 id=${1:-}
 [[ ${STUB_ENABLE_FAIL:-} != 1 ]] || { echo "omarchy-plugin-enable: boom" >&2; exit 1; }
 [[ -f $SB/plugins/$id.state ]] || { echo "plugin '$id' is not known" >&2; exit 1; }
-if [[ -e $SB/plugins/$id.islock ]]; then   # one lock screen at a time
+if [[ -e $SB/plugins/$id.islock && ${STUB_MANY_LOCKS:-} != 1 ]]; then   # one lock screen at a time
   for f in "$SB"/plugins/*.islock; do echo disabled > "${f%.islock}.state"; done
 fi
 echo enabled > "$SB/plugins/$id.state"
 echo "Enabled $id"
+''',
+    "omarchy-plugin-disable": r'''#!/bin/bash
+echo "omarchy-plugin-disable $*" >> "$SB/calls.log"
+id=${1:-}
+[[ -f $SB/plugins/$id.state ]] || { echo "plugin '$id' is not known" >&2; exit 1; }
+echo disabled > "$SB/plugins/$id.state"
+echo "Disabled $id"
 ''',
     # Faithful to /usr/share/omarchy/bin/omarchy-plugin-clone: the new id is "${USER}.${source#omarchy.}",
     # the tool switches to it, and the shell refuses ids in the omarchy.* namespace (the issue #5 log line).

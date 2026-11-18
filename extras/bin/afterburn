@@ -171,6 +171,17 @@ state_set() { mkdir -p "$STATE"; printf '%s\n' "$2" > "$STATE/$1"; }
 flag_on()   { [[ $(state_get "$1" off) == on ]]; }
 effective_quiet() { flag_on quiet || flag_on saver; }
 
+# Commands that change something run one at a time: the watcher's three loops, the theme-set hook and you can
+# start them together, and two at once could each save the other's state as yours. Taken before the theme name is
+# read, so a command that waited sees the theme as it is now. Reading commands never wait.
+case ${1:-status} in
+  apply|set|unset|level|quiet|saver|laptop)
+    if command -v flock >/dev/null; then
+      mkdir -p "$STATE" && exec 8>"$STATE/afterburn.lck"
+      flock -w "${AFTERBURN_LOCK_WAIT:-60}" 8 || die "another afterburn command is still running; nothing changed, try again"
+    fi ;;
+esac
+
 # Only touch Hyprland and cursor-fx while an Afterburn theme (base or edition) is active.
 THEME_NAME=$(ab_theme_name)
 is_afterburn() { ab_is_afterburn "$THEME_NAME"; }
@@ -261,6 +272,9 @@ cmd_apply() {
     return 0
   fi
   ab_write_palette_env   # the fail flash reads its colours from here
+  # `afterburn laptop on|off` is a standing choice; leaving Afterburn drops the saver flag, so set it again here
+  # (the watcher only decides for LAPTOP_MODE=auto).
+  case ${LAPTOP_MODE:-auto} in on|off) state_set saver "$LAPTOP_MODE" ;; esac
   apply_visuals
 }
 
@@ -273,9 +287,7 @@ cmd_apply() {
 #   had on yourself is never touched.
 CFX_PRE="$STATE/cursor-pre-quiet"
 SUBTLE_REC="$STATE/subtle-by-afterburn"
-cfx_now() {
-  grep -oP '^config-file\s*=\s*\??cursor-effects/\K[^.]+' "$GHOSTTY" 2>/dev/null || echo off
-}
+cfx_now() { ab_cursor_now; }
 
 # on, off, mixed or n/a, as `cursor-fx subtle` reports it ("Subtle version: off (cursor-fx subtle on|off)"); empty if unreadable.
 cfx_subtle_state() {
@@ -315,7 +327,8 @@ apply_extra() {
         # Nothing saved yet (the hook has not run since an older install): the running effect is yours, keep it
         # for the day you leave Afterburn.
         [[ -f $STATE/prev-cursor-fx ]] || cfx_now > "$STATE/prev-cursor-fx"
-        cursor-fx "$CURSOR_FX" >/dev/null 2>&1 || true
+        # Recorded as ours only once it is on (the theme hook relies on that record when you leave).
+        cursor-fx "$CURSOR_FX" >/dev/null 2>&1 || return 0
       fi
       printf '%s\n' "$CURSOR_FX" > "$STATE/cursor-fx-set" ;;
     EMBER_STYLE)
@@ -402,6 +415,30 @@ cmd_status() {
   for k in $KEYS; do printf '  %-16s %s%s\n' "$k" "${!k}" "${SRC[$k]:+  (${SRC[$k]})}"; done
 }
 
+# The lock-screen embers, read only: which clone, which lock is enabled, parked or not, and whether the clone's loader
+# is the one this release ships (an old one shows no embers; issue #5).
+doctor_lock() {
+  local id dir list cs os newest loader="$THEME_DIR/extras/lock/EmberLoader.qml"
+  if [[ ! -f $STATE/lock-embers ]]; then
+    echo "lock:       embers not installed (Omarchy's own lock screen)"
+    return 0
+  fi
+  id=$(sed -n 's/^clone_id=//p' "$STATE/lock-embers" | head -n1)
+  id=${id:-${USER:-$(id -un)}.lock}
+  dir="$HOME/.config/omarchy/plugins/$id"
+  list=$(omarchy-plugin-list 2>/dev/null) || list=""
+  cs=$(awk -v id="$id" '$1 == id { print $2; exit }' <<<"$list")
+  os=$(awk '$1 == "omarchy.lock" { print $2; exit }' <<<"$list")
+  echo "lock:       $id ${cs:-unknown}, omarchy.lock ${os:-unknown}$([[ -f $STATE/lock-parked ]] && echo "  (parked: Afterburn's lock comes back when you switch to Afterburn)")"
+  if [[ -d $dir ]]; then
+    newest=$(find "$dir" -mindepth 1 -maxdepth 1 -type d -name 'embers.*' | sort | tail -n1)
+    echo "  loader:   $(cmp -s "$loader" "$dir/EmberLayer.qml" && echo "current" || echo "OUTDATED: switch theme once, then log out and back in")"
+    echo "  embers:   $([[ -n $newest ]] && basename "$newest" || echo "none")"
+  else
+    echo "  clone folder missing: $dir"
+  fi
+}
+
 # Read-only checkup: everything that can switch the effects off, on one screen. Writes nothing
 # (it reads the conf directly instead of load_conf, which would create a missing one).
 cmd_doctor() {
@@ -429,6 +466,7 @@ cmd_doctor() {
   echo "watcher:    $(systemctl --user is-active afterburn-watch.service 2>/dev/null || true) (afterburn-watch.service)"
   echo "cursor-fx:  $(command -v cursor-fx >/dev/null 2>&1 && echo installed || echo "NOT installed: no cursor effects")"
   echo "ghostty:    $(command -v ghostty >/dev/null 2>&1 && echo installed || echo "NOT installed")"
+  doctor_lock
   n=$(hyprctl configerrors 2>/dev/null | grep -Evc '^[[:space:]]*$|^no errors' || true)
   echo "hyprland config errors: ${n:-0}$([[ ${n:-0} -gt 0 ]] && echo "  (see: hyprctl configerrors)")"
 }

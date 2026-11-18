@@ -334,12 +334,28 @@ class LiveRecolorTests(LockEmbersBase):
         """Real Qt, offscreen. As in Omarchy's LockView, the layer sits in a Rectangle below the view that has
         loadBackground. Showing again with nothing new reuses the URL (no new copy per lock); after a new
         embers.<n> folder replaces the old one, as recolor does, the next show loads the new embers."""
+        self.run_loader(slashless=False)
+
+    @unittest.skipUnless(shutil.which("qml6"), "needs Qt's qml6 runner")
+    def test_loader_works_when_the_folder_url_has_no_trailing_slash(self):  # issue #5 follow-up
+        """Quickshell gives FolderListModel.folder without a trailing slash; plain Qt keeps it. The loader is run
+        here with the folder set to the slashless URL, so a `folder + name` join would load .../qmlembers.1."""
+        self.run_loader(slashless=True)
+
+    def test_loader_never_joins_the_folder_url_by_hand(self):  # issue #5 follow-up, also without qml6
+        self.assertNotIn("versions.folder +", LOADER.read_text())
+
+    def run_loader(self, slashless):
         sb = self.make("alice")
         d = sb.root / "qml"
         (d / "embers.1").mkdir(parents=True)
         (d / "styles").mkdir()          # any other folder (it sorts after embers.*) is never picked
         (d / "styles" / "Embers.qml").write_text('import QtQuick\nItem { property string tag: "styles" }\n')
-        shutil.copy(LOADER, d / "EmberLayer.qml")
+        loader = LOADER.read_text()
+        if slashless:
+            self.assertIn('folder: Qt.resolvedUrl(".")', loader)
+            loader = loader.replace('folder: Qt.resolvedUrl(".")', f'folder: "{d.as_uri()}"')
+        (d / "EmberLayer.qml").write_text(loader)
         (d / "embers.1" / "Embers.qml").write_text('import QtQuick\nItem { property string tag: "old" }\n')
         (d / "LockView.qml").write_text(
             "import QtQuick\nItem {\n  property bool loadBackground: false\n  property alias embers: embers\n"
@@ -421,6 +437,30 @@ class BackwardsCompatTests(LockEmbersBase):
         self.assertFalse((sb.plugins_dir / "afterburn.lock").exists())
         self.assertFalse(any("omarchy-plugin-clone" in c for c in sb.call_log()))
         self.assertIn("clone_id=alice.lock", sb.marker.read_text())
+        self.assertEqual(sb.enabled_locks(), ["alice.lock"])
+
+    def your_own_clone(self, sb):
+        """A clone you made yourself with `omarchy plugin clone omarchy.lock`: same id and parent, no embers."""
+        sb.add_legacy_clone("alice.lock")
+        (sb.plugins_dir / "alice.lock" / "EmberLayer.qml").unlink()
+        sb.write_state_text(sb.marker, "")
+
+    def test_your_own_user_lock_clone_is_never_removed(self):  # Codex review C1
+        sb = self.make("alice")
+        self.your_own_clone(sb)
+        r = sb.lock("uninstall")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue((sb.plugins_dir / "alice.lock" / "manifest.json").exists())
+        self.assertFalse(any("omarchy-plugin-remove" in c for c in sb.call_log()))
+
+    def test_install_leaves_your_own_user_lock_clone_alone(self):  # Codex review C1
+        sb = self.make("alice")
+        self.your_own_clone(sb)
+        r = sb.lock("install")
+        # Yours is the active lock, so the embers step changes nothing (as for any lock you picked).
+        self.assertIn("nothing changed", r.stdout + r.stderr)
+        self.assertNotIn("clone_id=alice.lock", sb.marker.read_text() if sb.marker.exists() else "")
+        self.assertFalse((sb.plugins_dir / "alice.lock" / "EmberLayer.qml").exists(), "yours is not patched")
         self.assertEqual(sb.enabled_locks(), ["alice.lock"])
 
     def test_the_marker_id_wins_over_the_username(self):

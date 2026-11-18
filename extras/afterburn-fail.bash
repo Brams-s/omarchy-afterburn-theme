@@ -7,8 +7,10 @@
 # Total under ~450 ms. Pure bash on the success path. A flash costs 11 forks: two stat, one
 # history subshell, and one sleep per frame (8). Needs bash 4.4+ (${var@P}).
 #
-# Skips: exit 130/148 (Ctrl-C, Ctrl-Z), non-interactive shells, NO_MOTION set, and a prompt
-# where no new command ran (an empty Enter after a failure keeps the old $?).
+# Skips: exit 130/148 (Ctrl-C, Ctrl-Z), non-interactive shells, NO_MOTION set, a prompt
+# where no new command ran (an empty Enter after a failure keeps the old $?), any theme that
+# is not Afterburn or an Afterburn edition (Omarchy's current theme name, read only after a failure),
+# and no ~/.config/afterburn/afterburn.conf (uninstalled: open shells stop flashing too).
 # FAIL_FX (random|burn|cascade|dissolve|off) comes from
 # ${XDG_CONFIG_HOME:-~/.config}/afterburn/afterburn.conf, re-read when mtime changes.
 
@@ -116,6 +118,12 @@ if [[ $- == *i* && -t 1 && -z ${__AFTERBURN_FAIL_HOOKED-} ]]; then
        && [[ $- == *i* && -t 1 && -z ${NO_MOTION+x} ]]; then
       # So ${#text} and ${text:i:1} count characters, not bytes. Set only here: every prompt would pay for it.
       local LC_ALL=C.UTF-8
+      # Afterburn's flash belongs to Afterburn: no flash on another theme. A builtin read, so no fork.
+      local theme=""
+      read -r theme 2>/dev/null < "$HOME/.local/state/omarchy/current/theme.name" || true
+      [[ $theme == afterburn || $theme == afterburn-* ]] || return "$rc"
+      # Uninstalled (uninstall.sh moves the conf aside): a shell opened before that stops flashing too.
+      [[ -f ${XDG_CONFIG_HOME:-$HOME/.config}/afterburn/afterburn.conf ]] || return "$rc"
       __afterburn_fail_load_conf
       [[ $__AFTERBURN_FAIL_FX == off ]] && return "$rc"   # nothing to play: no palette, no history
       __afterburn_fail_load_palette

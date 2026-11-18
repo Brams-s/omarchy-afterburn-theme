@@ -10,8 +10,12 @@ FAIL_BASH = REPO / "extras" / "afterburn-fail.bash"
 
 
 # Every flash frame starts with an erase-line escape; the glyph itself is not in every frame.
-def interactive(sb, keys, histcontrol="ignoreboth", after=""):
-    """Run a real interactive bash in a pty; return the output after sourcing, then after each key line."""
+def interactive(sb, keys, histcontrol="ignoreboth", after="", conf=True):
+    """Run a real interactive bash in a pty; return the output after sourcing, then after each key line.
+    conf: the subtle pack's afterburn.conf exists (install writes it; uninstall renames it)."""
+    c = sb.home / ".config/afterburn/afterburn.conf"
+    if conf and not c.exists():
+        sb.write_state_text(c, "")
     env = sb.env(HISTCONTROL=histcontrol, PS1="PRMT> ")
     pid, fd = pty.fork()
     if pid == 0:
@@ -57,6 +61,25 @@ class FailFlashTests(unittest.TestCase):
         self.assertEqual(self.flashes(["false\n", "false\n"]), [True, True])
         self.assertEqual(self.flashes(["false\n", "false\n"], histcontrol="ignoreboth:erasedups"), [True, True])
 
+    def theme_flashes(self, theme):
+        sb = Sandbox()
+        self.addCleanup(sb.cleanup)
+        name = sb.home / ".local/state/omarchy/current/theme.name"
+        if theme is None:
+            name.unlink()
+        else:
+            sb.write_state_text(name, theme + "\n")
+        return ["\x1b[2K" in out for out in interactive(sb, ["false\n"])[1:]]
+
+    def test_flashes_on_afterburn_and_its_editions(self):
+        self.assertEqual(self.theme_flashes("afterburn"), [True])
+        self.assertEqual(self.theme_flashes("afterburn-redline"), [True])
+
+    def test_no_flash_on_other_themes(self):  # issue #5 follow-up
+        self.assertEqual(self.theme_flashes("nord"), [False])
+        self.assertEqual(self.theme_flashes("afterburnish"), [False])
+        self.assertEqual(self.theme_flashes(None), [False])
+
     def test_first_prompt_does_not_flash(self):
         sb = Sandbox()
         self.addCleanup(sb.cleanup)
@@ -69,6 +92,13 @@ class FailFlashTests(unittest.TestCase):
         self.addCleanup(sb.cleanup)
         sb.write_state_text(sb.home / ".config/afterburn/afterburn.conf", "FAIL_FX=off\n")
         self.assertEqual(["\x1b[2K" in out for out in interactive(sb, ["false\n", "true\n"])[1:]], [False, False])
+
+    def test_open_shells_stop_flashing_after_uninstall(self):  # Codex review C5
+        sb = Sandbox()
+        self.addCleanup(sb.cleanup)
+        conf = sb.home / ".config/afterburn/afterburn.conf"
+        out = interactive(sb, ["false\n", f"mv {conf} {conf}.bak\n", "false\n"])[1:]
+        self.assertEqual(["\x1b[2K" in o for o in out], [True, False, False])
 
     def test_the_hook_goes_first_in_an_array_or_a_string_also_under_set_u(self):
         sb = Sandbox()

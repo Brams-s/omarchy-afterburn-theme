@@ -4,14 +4,24 @@
 # afterburn.conf is kept as afterburn.conf.bak), the lock-screen embers and the colour editions if the installer added them.
 # The boot/login screen is put back with Omarchy's omarchy-plymouth-reset if the installer set it
 # (it needs sudo, so you are asked; or the exact command is printed).
-# Ghostty and cursor-fx stay installed; how to remove them is printed at the end.
+# cursor-fx goes too if the installer put it there (you are asked; files are moved to a backup folder, not
+# deleted). Ghostty stays installed; how to remove it is printed at the end.
+#   --remove-cursor-fx  remove cursor-fx without asking      --keep-cursor-fx  keep it without asking
 set -u
+CFX_MODE=ask
+for arg in "$@"; do
+  case $arg in
+    --remove-cursor-fx) CFX_MODE=remove ;;
+    --keep-cursor-fx) CFX_MODE=keep ;;
+    *) echo "usage: $0 [--remove-cursor-fx | --keep-cursor-fx]" >&2; exit 2 ;;
+  esac
+done
 HERE="$(cd "$(dirname "$0")" && pwd)"
 D="$HOME/.config/omarchy/hooks/theme-set.d"
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/afterburn"
 CONF_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 BIN="$HOME/.local/bin"
-KEEP=(preview-backups ghostty-savepoints)   # state files that stay: the manual undo in the README needs preview-backups; a failed restore adds its own
+KEEP=(preview-backups ghostty-savepoints 'cursor-fx-removed-*')   # state files that stay: the manual undo in the README needs preview-backups; a failed restore adds its own
 RC=0
 # shellcheck disable=SC1091
 . "$HERE/afterburn-theme.sh"   # AB_BASHRC_LINE
@@ -84,13 +94,86 @@ fi
 
 # Cursor effect: after the edition switch above, not before. Switching to the base theme runs the theme-set
 # hook, which sets that theme's effect; restoring first would let it overwrite your own effect again.
+# Only over Afterburn's own effect (as when you leave Afterburn): one you picked yourself stays.
 if [[ -f $STATE_DIR/prev-cursor-fx ]] && command -v cursor-fx >/dev/null; then
-  cursor-fx "$(cat "$STATE_DIR/prev-cursor-fx")" >/dev/null 2>&1 && echo "  ✓ cursor effect restored"
+  cur=$(ab_cursor_now)
+  [[ -f $STATE_DIR/cursor-pre-quiet ]] && cur=$(cat "$STATE_DIR/cursor-pre-quiet")
+  ours=$(cat "$STATE_DIR/cursor-fx-set" 2>/dev/null || true)
+  if [[ -n $ours && $cur != "$ours" ]]; then
+    echo "  · cursor effect: kept $cur, which you picked yourself"
+  elif cursor-fx "$(cat "$STATE_DIR/prev-cursor-fx")" >/dev/null 2>&1; then
+    echo "  ✓ cursor effect restored"
+  fi
 fi
 
 # Subtle: only if battery saver turned it on and nothing has turned it off again (a subtle you had on is left alone).
 if [[ -f $STATE_DIR/subtle-by-afterburn ]] && command -v cursor-fx >/dev/null; then
   cursor-fx subtle off >/dev/null 2>&1 && echo "  ✓ cursor subtle mode restored"
+fi
+
+# cursor-fx: only if the installer put it there (its checkout in ~/.local/share/afterburn is the proof: install.sh
+# only clones it when it installs cursor-fx). Everything is moved into one backup folder, so it can be put back.
+CFX_DIR="$HOME/.local/share/afterburn/ghostty-cursor-fx"   # install.sh's path, whatever XDG_DATA_HOME says
+CFX_NOTE=mine
+remove_cursor_fx() {
+  local cfg gdir bak sub f name real tmp left
+  cfg=${XDG_CONFIG_HOME:-$HOME/.config}/ghostty/config; [[ -e $cfg ]] || cfg+=.ghostty
+  # cursor-fx's installer puts its folders beside the real config file (a dotfiles link is followed).
+  gdir=$(dirname "$(readlink -f "$cfg")")
+  bak="$STATE_DIR/cursor-fx-removed-$(date +%Y%m%d-%H%M%S)"
+  mkdir -p "$bak" || return 1
+  command -v cursor-fx >/dev/null && { cursor-fx off >/dev/null 2>&1 || true; }
+  # `cursor-fx off` leaves its marker comment and its -last / -panes notes in the config: take those out too.
+  if [[ -f $cfg ]]; then
+    real=$(readlink -f "$cfg")
+    cp -p "$real" "$bak/ghostty-config" || return 1
+    tmp=$(mktemp "$(dirname "$real")/.ghostty.XXXXXX") || return 1
+    awk '
+      /^[ \t]*config-file[ \t]*=[ \t]*"?\??cursor-effects\// { next }
+      /^# Cursor effect preset from cursor-effects\// { next }
+      /^[ \t]*#[ \t]*cursor-fx-(last|panes)[ \t]*=/ { next }
+      { print }
+    ' "$real" > "$tmp" || { rm -f "$tmp"; return 1; }
+    ab_replace_if_changed "$tmp" "$cfg" || return 1
+  fi
+  # Only the files cursor-fx ships (named in its checkout). A file of yours in those folders stays.
+  for sub in shaders cursor-effects; do
+    for f in "$CFX_DIR/$sub"/*; do
+      name=$(basename "$f")
+      [[ -f $f && ( -e $gdir/$sub/$name || -L $gdir/$sub/$name ) ]] || continue
+      mkdir -p "$bak/$sub" && mv "$gdir/$sub/$name" "$bak/$sub/" || return 1
+    done
+    if [[ -d $gdir/$sub ]] && ! rmdir "$gdir/$sub" 2>/dev/null; then
+      left=$(find "$gdir/$sub" -mindepth 1 -maxdepth 1 | wc -l)
+      echo "  · kept $left file(s) of your own in $gdir/$sub"
+    fi
+  done
+  if [[ -e $BIN/cursor-fx || -L $BIN/cursor-fx ]]; then mv "$BIN/cursor-fx" "$bak/" || return 1; fi
+  f="$HOME/.pi/agent/extensions/cursor-fx.ts"
+  if [[ -f $f ]]; then
+    mv "$f" "$bak/pi-extension-cursor-fx.ts" || return 1
+    echo "  · pi: removed the cursor-fx extension; showHardwareCursor in ~/.pi/agent/settings.json is left as it is"
+  fi
+  echo "  ✓ cursor-fx removed (everything it had is in $bak)"
+}
+if [[ -d $CFX_DIR ]]; then
+  if [[ $CFX_MODE == ask ]]; then
+    # No terminal (or no answer) keeps it: removing is never done unasked.
+    if read -rp "  Remove cursor-fx too? (it came with Afterburn; its files are moved to a backup folder) [Y/n] " a; then
+      [[ -z $a || $a =~ ^[Yy] ]] && CFX_MODE=remove || CFX_MODE=keep
+    else
+      echo; CFX_MODE=keep
+    fi
+  fi
+  if [[ $CFX_MODE == remove ]]; then
+    if remove_cursor_fx; then CFX_NOTE=removed; else
+      RC=1; CFX_NOTE=failed
+      echo "  ✗ cursor-fx not fully removed; what was moved is in $STATE_DIR/cursor-fx-removed-*"
+      echo "    fix the error above, then run: $0 --remove-cursor-fx"
+    fi
+  else
+    CFX_NOTE=kept
+  fi
 fi
 
 # Lock screen: only if the installer added the embers (marker written on a successful install).
@@ -109,50 +192,42 @@ for f in afterburn afterburn-watch; do
   fi
 done
 # Starship: put back only the original error_symbol line, and only if the line is still the one we wrote.
-STARSHIP="$CONF_HOME/starship.toml"
-OURS_SYMBOL='error_symbol = "[❯](bold red)"'
-if [[ -f $STATE_DIR/starship-error-symbol && -f $STARSHIP ]]; then
-  if grep -qxF "$OURS_SYMBOL" "$STARSHIP"; then
-    orig=$(cat "$STATE_DIR/starship-error-symbol")
-    real=$(readlink -f "$STARSHIP")
-    tmp=$(mktemp "$(dirname "$real")/.starship.XXXXXX")
-    # ENVIRON, not -v: awk -v would turn a backslash in your original line (\u2717, \\) into something else.
-    # Write, then chmod, then move: if any step fails (a full disk) your file is left as it was.
-    if OURS="$OURS_SYMBOL" ORIG="$orig" awk '
-      $0 == ENVIRON["OURS"] && !done { done = 1; if (ENVIRON["ORIG"] != "absent") print ENVIRON["ORIG"]; next }
-      { print }
-    ' "$real" > "$tmp" && chmod --reference="$real" "$tmp" && mv "$tmp" "$real"; then
-      echo "  ✓ starship error_symbol restored"
-    else
-      rm -f "$tmp"; KEEP+=(starship-error-symbol); RC=1
-      echo "  ✗ starship error_symbol not restored (your file is unchanged); original line is in $STATE_DIR/starship-error-symbol"
-    fi
-  else
-    echo "  · starship error_symbol changed since install; left as is"
-  fi
-fi
-
-# ~/.bashrc: delete only the line the installer added, matched whole. Written to a temp file, then moved into place.
-if grep -qxF "$AB_BASHRC_LINE" "$HOME/.bashrc" 2>/dev/null; then
-  real=$(readlink -f "$HOME/.bashrc")
-  tmp=$(mktemp "$(dirname "$real")/.bashrc.XXXXXX")
+srv=0; ab_starship_restore || srv=$?
+case $srv in
+  0) echo "  ✓ starship error_symbol restored" ;;
+  1) KEEP+=(starship-error-symbol); RC=1
+     echo "  ✗ starship error_symbol not restored (your file is unchanged); original line is in $STATE_DIR/starship-error-symbol" ;;
+  2) echo "  · starship error_symbol is not Afterburn's red ❯; nothing to restore" ;;
+esac
+# ~/.bashrc: delete only the lines the installer added, matched whole. Written to a temp file, then moved into place.
+# $1 the line, $2 its marker (a newline was added before it), $3 what to call it. Reverse install order (the
+# cursor-fx step runs before the subtle pack), so a line whose newline the installer added is the last one left.
+BASHRC_REAL=$(readlink -f "$HOME/.bashrc")
+remove_bashrc_line() {
+  grep -qxF "$1" "$BASHRC_REAL" 2>/dev/null || return 0
+  local tmp
+  tmp=$(mktemp "$(dirname "$BASHRC_REAL")/.bashrc.XXXXXX")
   # Write, then chmod, then move (as for starship above). awk, not grep -v: grep exits 1 when nothing is left.
   if {
-    if [[ -f $STATE_DIR/bashrc-newline && $(tail -n1 "$real") == "$AB_BASHRC_LINE" ]]; then
-      # The installer added a newline before its line because the file had none, and the marker line is last:
-      # drop the marker line and that newline, so the file is byte-for-byte the original.
-      head -n -1 "$real" | head -c -1 > "$tmp"
+    if [[ -f $STATE_DIR/$2 && $(tail -n1 "$BASHRC_REAL") == "$1" ]]; then
+      # The installer added a newline before its line because the file had none, and the line is last:
+      # drop the line and that newline, so the file is byte-for-byte the original.
+      head -n -1 "$BASHRC_REAL" | head -c -1 > "$tmp"
     else
-      LINE="$AB_BASHRC_LINE" awk '$0 != ENVIRON["LINE"]' "$real" > "$tmp"
+      LINE="$1" awk '$0 != ENVIRON["LINE"]' "$BASHRC_REAL" > "$tmp"
     fi
-  } && chmod --reference="$real" "$tmp" && mv "$tmp" "$real"; then
-    echo "  ✓ ~/.bashrc line removed"
-    # The installer made this file (there was none): take it away again if nothing else is in it.
-    if [[ -f $STATE_DIR/bashrc-created && ! -s $real ]]; then rm -f "$real" && echo "  ✓ ~/.bashrc removed (the installer had created it, and it is empty)"; fi
+  } && chmod --reference="$BASHRC_REAL" "$tmp" && mv "$tmp" "$BASHRC_REAL"; then
+    echo "  ✓ ~/.bashrc $3 line removed"
   else
-    rm -f "$tmp"; KEEP+=(bashrc-newline bashrc-created); RC=1
-    echo "  ✗ ~/.bashrc line not restored (your file is unchanged); remove the line ending in '# afterburn' yourself"
+    rm -f "$tmp"; KEEP+=("$2" bashrc-created); RC=1
+    echo "  ✗ ~/.bashrc $3 line not restored (your file is unchanged); remove the line ending in '# afterburn' yourself"
   fi
+}
+remove_bashrc_line "$AB_BASHRC_LINE" bashrc-newline "fail-effect"
+remove_bashrc_line "$AB_CFX_BASHRC_LINE" cfx-bashrc-newline "cursor-fx Enter"
+# The installer made this file (there was none): take it away again if nothing else is in it.
+if [[ -f $STATE_DIR/bashrc-created && -f $BASHRC_REAL && ! -s $BASHRC_REAL ]]; then
+  rm -f "$BASHRC_REAL" && echo "  ✓ ~/.bashrc removed (the installer had created it, and it is empty)"
 fi
 APPS_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 rm -f "$APPS_DIR/afterburn-colors.desktop"
@@ -166,9 +241,11 @@ if [[ -f $CONF_HOME/afterburn/afterburn.conf ]]; then
   echo "  · kept your settings: $bak (delete it if you do not want them)"
 fi
 rmdir "$CONF_HOME/afterburn" 2>/dev/null || true
-# The cursor-fx checkout is the one thing the installer puts in ~/.local/share/afterburn.
+# The cursor-fx checkout is the one thing the installer puts in ~/.local/share/afterburn. Kept while cursor-fx is:
+# it names the files to remove, so `uninstall.sh --remove-cursor-fx` later still knows what is Afterburn's.
 DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
-rm -rf "$HOME/.local/share/afterburn/ghostty-cursor-fx"
+# Only after a full removal: a failed one keeps it, so a retry knows what is left.
+[[ $CFX_NOTE == removed ]] && rm -rf "$CFX_DIR"
 rmdir "$HOME/.local/share/afterburn" 2>/dev/null || true
 # Remove the directories the installer created, but only if they are now empty.
 rmdir "$BIN" "$CONF_HOME/systemd/user" "$CONF_HOME/systemd" "$APPS_DIR" "$DATA_HOME" 2>/dev/null || true
@@ -201,11 +278,14 @@ rmdir "$STATE_DIR" 2>/dev/null || true
 [[ -d $STATE_DIR/ghostty-savepoints ]] && echo "  · kept your Ghostty config backups: $STATE_DIR/ghostty-savepoints"
 [[ -d $STATE_DIR/preview-backups ]] && echo "  · kept your preview backups: $STATE_DIR/preview-backups"
 echo "  ✓ Afterburn hook removed"
+[[ $CFX_NOTE == removed ]] && echo "  · cursor-fx backup kept in $STATE_DIR (delete it when you are sure)"
+echo
+echo "  Still installed (remove only if you want):"
+if [[ $CFX_NOTE == kept || $CFX_NOTE == mine ]] && command -v cursor-fx >/dev/null; then
+  [[ $CFX_NOTE == kept ]] && echo "    cursor-fx:  $0 --remove-cursor-fx   (moves it all to a backup folder)" ||
+    echo "    cursor-fx:  not installed by Afterburn (no ~/.local/share/afterburn checkout), so it was left alone"
+fi
 cat <<'EOF'
-
-  Still installed (remove only if you want):
-    cursor-fx:  cursor-fx off; rm ~/.local/bin/cursor-fx; rm -r ~/.config/ghostty/{shaders,cursor-effects}
-                and delete the `config-file = cursor-effects/...` line in ~/.config/ghostty/config
     Ghostty:    omarchy pkg drop ghostty   (set another default terminal first)
   The glow disappears the next time you apply any theme.
 EOF
