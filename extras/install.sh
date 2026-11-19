@@ -318,18 +318,18 @@ LOCK="$HERE/lock/lock-embers.sh"
 echo
 if [[ ! -f $LOCK ]]; then
   skip "lock screen: $LOCK not found, skipped"
-elif omarchy-plugin-list 2>/dev/null | awk '$1 == "io.github.sirjul1337.lock-explorer" && $2 == "enabled" { f = 1 } END { exit !f }'; then
+elif [[ $(bash "$LOCK" target 2>/dev/null) == explorer ]]; then
   LOCK_Q="Add an Afterburn lock design with embers to Lock Screen Explorer? (a design file in ~/.config/omarchy/lock-designs; the explorer itself is not changed)"
+  LOCK_CHANGE="Afterburn design in ~/.config/omarchy/lock-designs (uninstall.sh removes it)"
 else
   LOCK_Q="Animate the lock screen with embers? (clones Omarchy's lock plugin; it stops getting Omarchy's lock-screen updates until you uninstall)"
+  LOCK_CHANGE="lock screen clone in ~/.config/omarchy/plugins (afterburn.lock; uninstall.sh removes it)"
 fi
-if [[ -z ${LOCK_Q:-} ]]; then
-  :
-elif ask "$LOCK_Q"; then
+if [[ -n ${LOCK_Q:-} ]] && ask "$LOCK_Q"; then
   # lock-embers.sh picks the clone id (afterburn.lock; an older install keeps its <user>.lock) and writes
   # the marker $STATE_DIR/lock-embers with it as soon as the clone exists. If a step fails after the
   # built-in lock was switched off, it puts the built-in lock back before it exits.
-  CHANGED+=("lock screen clone in ~/.config/omarchy/plugins (afterburn.lock; uninstall.sh removes it)")
+  CHANGED+=("$LOCK_CHANGE")
   rc=0
   bash "$LOCK" install || rc=$?
   if (( rc == 0 )); then
@@ -339,7 +339,7 @@ elif ask "$LOCK_Q"; then
   else
     skip "lock screen: the install did not finish (see the messages above)"
   fi
-else
+elif [[ -n ${LOCK_Q:-} ]]; then
   skip "kept the stock lock screen"
 fi
 

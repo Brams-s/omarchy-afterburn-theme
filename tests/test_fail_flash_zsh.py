@@ -91,6 +91,21 @@ class FailFlashZshTests(unittest.TestCase):
         plain = "".join(ch for ch in __import__("re").sub(r"\x1b\[[0-9;]*[A-Za-z]", "", out))
         self.assertIn("✗ ls_nope_xyz", plain)
 
+    def test_ksh_arrays_does_not_break_it(self):
+        sb = Sandbox()
+        self.addCleanup(sb.cleanup)
+        sb.write_state_text(sb.home / ".config/afterburn/afterburn.conf", "FAIL_FX=burn\n")
+        import re
+        out = interactive(sb, ["setopt ksh_arrays; ls_nope_xyz\n"])[1]
+        self.assertIn("✗ setopt ksh_arrays; ls_nope_xyz  exit 127", re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", out))
+
+    def test_hooks_install_even_when_stdout_is_redirected_while_sourcing(self):
+        sb = Sandbox()
+        self.addCleanup(sb.cleanup)
+        # As Powerlevel10k's instant prompt does: the rc line runs with stdout not a terminal.
+        seen = interactive(sb, ["false\n"], after=" > /dev/null")
+        self.assertIn("\x1b[2K", seen[1])
+
 
 class ZshrcLineTests(unittest.TestCase):
     def test_install_adds_and_uninstall_removes_the_zshrc_line_through_a_symlink(self):

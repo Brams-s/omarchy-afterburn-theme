@@ -11,7 +11,8 @@
 # matter and Starship still sees the exit code. No forks at all: zstat for mtimes, zselect for the frame delay
 # (falls back to sleep when the modules are missing).
 
-if [[ -o interactive && -t 1 && -z ${__AFTERBURN_FAIL_HOOKED-} ]]; then
+# No -t 1 here: setups such as Powerlevel10k's instant prompt redirect stdout while ~/.zshrc runs. precmd checks it.
+if [[ -o interactive && -z ${__AFTERBURN_FAIL_HOOKED-} ]]; then
   typeset -g __AFTERBURN_FAIL_HOOKED=1
   typeset -g __AFTERBURN_FAIL_MTIME= __AFTERBURN_PAL_MTIME= __AFTERBURN_FAIL_FX=random
   typeset -g __AFB_RAN=0 __AFB_CMD=
@@ -21,7 +22,9 @@ if [[ -o interactive && -t 1 && -z ${__AFTERBURN_FAIL_HOOKED-} ]]; then
   zmodload -F zsh/stat b:zstat 2>/dev/null
   zmodload zsh/zselect 2>/dev/null
 
+  # Every function starts with emulate -L zsh: your options (ksh_arrays, ...) must not change indexing here.
   __afterburn_fail_mtime() {   # $1 file -> REPLY (mtime, or "missing")
+    emulate -L zsh
     local -a m
     if (( $+builtins[zstat] )) && zstat -A m +mtime -- "$1" 2>/dev/null; then REPLY=$m[1]
     elif [[ -e $1 ]]; then REPLY=$(stat -c %Y -- "$1" 2>/dev/null) || REPLY=missing
@@ -29,6 +32,7 @@ if [[ -o interactive && -t 1 && -z ${__AFTERBURN_FAIL_HOOKED-} ]]; then
   }
 
   __afterburn_fail_load_conf() {
+    emulate -L zsh
     local conf=${XDG_CONFIG_HOME:-$HOME/.config}/afterburn/afterburn.conf k v REPLY
     __afterburn_fail_mtime "$conf"
     [[ $REPLY == "$__AFTERBURN_FAIL_MTIME" ]] && return 0
@@ -44,6 +48,7 @@ if [[ -o interactive && -t 1 && -z ${__AFTERBURN_FAIL_HOOKED-} ]]; then
   }
 
   __afterburn_fail_load_palette() {
+    emulate -L zsh
     local pal=${XDG_STATE_HOME:-$HOME/.local/state}/afterburn/palette.env k v REPLY
     __afterburn_fail_mtime "$pal"
     [[ $REPLY == "$__AFTERBURN_PAL_MTIME" ]] && return 0
@@ -101,12 +106,14 @@ if [[ -o interactive && -t 1 && -z ${__AFTERBURN_FAIL_HOOKED-} ]]; then
 
   # preexec: a command is about to run. An empty Enter runs no preexec, so it never replays a failure.
   __afterburn_fail_preexec() {
+    emulate -L zsh
     __AFB_RAN=1
     __AFB_CMD=$1
   }
 
   __afterburn_fail_precmd() {
-    local rc=$?
+    local rc=$?   # first: emulate would reset it
+    emulate -L zsh
     local ran=$__AFB_RAN
     __AFB_RAN=0
     (( ran && rc != 0 && rc != 130 && rc != 148 )) || return 0
