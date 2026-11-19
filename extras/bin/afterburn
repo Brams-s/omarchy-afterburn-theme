@@ -423,6 +423,15 @@ doctor_lock() {
     echo "lock:       embers not installed (Omarchy's own lock screen)"
     return 0
   fi
+  if grep -qx 'mode=explorer' "$STATE/lock-embers"; then
+    local designs="$HOME/.config/omarchy/lock-designs" cur
+    cur=$(omarchy-shell lock design 2>/dev/null) || cur=""
+    echo "lock:       Lock Screen Explorer, design ${cur:-unknown} (Afterburn's is my-afterburn)$([[ -f $STATE/lock-parked ]] && echo "  (parked: it comes back when you switch to Afterburn)")"
+    newest=$(find "$designs/afterburn" -mindepth 1 -maxdepth 1 -type d -name 'embers.*' 2>/dev/null | sort | tail -n1)
+    echo "  design:   $([[ -f $designs/Afterburn.qml ]] && echo "$designs/Afterburn.qml" || echo "MISSING: re-run extras/install.sh")"
+    echo "  embers:   $([[ -n $newest ]] && basename "$newest" || echo "none")"
+    return 0
+  fi
   id=$(sed -n 's/^clone_id=//p' "$STATE/lock-embers" | head -n1)
   id=${id:-${USER:-$(id -un)}.lock}
   dir="$HOME/.config/omarchy/plugins/$id"

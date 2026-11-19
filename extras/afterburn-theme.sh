@@ -21,6 +21,9 @@
 # that merely ends in "# afterburn" is never touched). $HOME stays literal in the file.
 AB_FAIL_SH='$HOME/.config/omarchy/themes/afterburn/extras/afterburn-fail.bash'
 AB_BASHRC_LINE="[[ -f \"$AB_FAIL_SH\" ]] && source \"$AB_FAIL_SH\"  # afterburn"
+# Its zsh twin, for ~/.zshrc (added only when zsh is your shell or you have a ~/.zshrc).
+AB_FAIL_ZSH='$HOME/.config/omarchy/themes/afterburn/extras/afterburn-fail.zsh'
+AB_ZSHRC_LINE="[[ -f \"$AB_FAIL_ZSH\" ]] && source \"$AB_FAIL_ZSH\"  # afterburn"
 # The cursor-fx step's own line: Enter and done moments in bash (cursor-fx ships a zsh hook only).
 AB_CFX_ENTER_SH='$HOME/.config/omarchy/themes/afterburn/extras/cursor-fx-enter.bash'
 AB_CFX_BASHRC_LINE="[[ -f \"$AB_CFX_ENTER_SH\" ]] && source \"$AB_CFX_ENTER_SH\"  # afterburn cursor-fx"

@@ -40,6 +40,14 @@
 # park, unpark and recolor take a lock (flock on afterburn/lock-embers.lck): the hook can run detached, so
 # quick theme switches would otherwise run them at the same time.
 #
+# Lock Screen Explorer (io.github.sirjul1337.lock-explorer): when that plugin is the active lock, nothing is
+#            cloned. install writes an "Afterburn" design to ~/.config/omarchy/lock-designs/Afterburn.qml (the
+#            explorer's own extension point) with the embers in lock-designs/afterburn/ (the same loader and
+#            embers.<n> folders as the clone), and selects it through the explorer's IPC (omarchy-shell lock
+#            setDesign my-afterburn), remembering the design that was up. The marker then says mode=explorer.
+#            park/unpark swap between that design and the remembered one; recolor writes the new embers there;
+#            uninstall puts the remembered design back and removes both. The explorer's files are never edited.
+#
 # Install and uninstall are idempotent. Re-running install on an existing clone refreshes
 # EmberLayer.qml and the embers and does not insert a second layer.
 #
@@ -64,6 +72,14 @@ PARKED="$STATE_DIR/lock-parked"       # exists while park has switched the clone
 PLUGINS_DIR="${LOCK_EMBERS_PLUGINS_DIR:-$HOME/.config/omarchy/plugins}"
 OMARCHY_ROOT="${LOCK_EMBERS_OMARCHY_PATH:-/usr/share/omarchy}"
 OFFICIAL_LOCK_DIR="$OMARCHY_ROOT/shell/plugins/lock"
+EXPLORER_ID="io.github.sirjul1337.lock-explorer"
+DESIGNS_DIR="${LOCK_EMBERS_DESIGNS_DIR:-$HOME/.config/omarchy/lock-designs}"
+DESIGN_SRC="$SELF_DIR/explorer/Afterburn.qml"
+DESIGN_FILE="$DESIGNS_DIR/Afterburn.qml"
+DESIGN_EMBERS="$DESIGNS_DIR/afterburn"
+DESIGN_ID="my-afterburn"              # the explorer's id for lock-designs/Afterburn.qml
+DESIGN_TAG="// afterburn:lock-explorer"
+PREV_DESIGN="$STATE_DIR/lock-explorer-prev"   # the design that was up before ours
 
 say() { echo "lock-embers: $*"; }
 die() { echo "lock-embers: $*" >&2; exit 1; }
@@ -253,8 +269,86 @@ other_lock_enabled() {
   return 1
 }
 
+# --- Lock Screen Explorer mode ---------------------------------------------------------------------------------
+explorer_mode() { [[ -f $MARKER ]] && grep -qx 'mode=explorer' "$MARKER"; }
+explorer_ipc() { omarchy-shell lock "$@" 2>/dev/null; }
+our_design_file() { [[ -f $DESIGN_FILE ]] && [[ $(head -n1 "$DESIGN_FILE") == "$DESIGN_TAG"* ]]; }
+
+# setDesign, retried while the explorer's rescan (an async process) has not listed a new file yet.
+explorer_set_design() {
+  local i
+  for (( i = 0; i < 20; i++ )); do
+    [[ $(explorer_ipc setDesign "$1") == ok ]] && return 0
+    sleep 0.25
+  done
+  return 1
+}
+
+install_explorer() {
+  [[ -f $DESIGN_SRC ]] || die "missing $DESIGN_SRC"
+  if [[ -e $DESIGN_FILE ]] && ! our_design_file; then
+    die "$DESIGN_FILE exists and is not Afterburn's; not touching it"
+  fi
+  mkdir -p "$DESIGN_EMBERS"
+  put "$LOADER" "$DESIGN_EMBERS/EmberLayer.qml" && put_embers "$DESIGN_EMBERS" "$EMBER_SRC" &&
+    put "$DESIGN_SRC" "$DESIGN_FILE" || die "could not write the Afterburn design into $DESIGNS_DIR"
+  mkdir -p "$STATE_DIR"
+  printf 'mode=explorer\n' > "$MARKER"
+  local cur
+  cur=$(explorer_ipc design) || cur=""
+  [[ -n $cur && $cur != "$DESIGN_ID" ]] && printf '%s\n' "$cur" > "$PREV_DESIGN"
+  explorer_ipc rescanDesigns >/dev/null || true
+  if explorer_set_design "$DESIGN_ID"; then
+    say "installed. Lock Screen Explorer shows the Afterburn design (was: ${cur:-unknown})"
+  else
+    say "installed the Afterburn design; pick it in Lock Screen Explorer (Custom > Afterburn)"
+  fi
+}
+
+uninstall_explorer() {
+  local cur prev
+  cur=$(explorer_ipc design) || cur=""
+  prev=$(cat "$PREV_DESIGN" 2>/dev/null) || prev=""
+  if [[ $cur == "$DESIGN_ID" && -n $prev ]]; then
+    explorer_set_design "$prev" && say "Lock Screen Explorer is back on $prev" || say "could not switch the explorer back to $prev; pick a design in it"
+  fi
+  our_design_file && rm -f "$DESIGN_FILE"
+  rm -rf -- "$DESIGN_EMBERS"
+  explorer_ipc rescanDesigns >/dev/null || true
+  rm -f "$MARKER" "$PARKED" "$PREV_DESIGN"
+  say "uninstalled"
+}
+
+# Leaving Afterburn: the remembered design comes back, if ours is the one up.
+park_explorer() {
+  local prev
+  prev=$(cat "$PREV_DESIGN" 2>/dev/null) || prev=""
+  [[ -n $prev && $(explorer_ipc design) == "$DESIGN_ID" ]] || return 0
+  explorer_set_design "$prev" || die "could not switch Lock Screen Explorer to $prev"
+  printf 'design=%s\n' "$prev" > "$PARKED"
+  say "parked: Lock Screen Explorer shows $prev until you switch back to Afterburn"
+}
+
+# Back on Afterburn: ours again, unless you picked another design meanwhile.
+unpark_explorer() {
+  [[ -f $PARKED ]] || return 0
+  local was
+  was=$(sed -n 's/^design=//p' "$PARKED")
+  if [[ $(explorer_ipc design) == "$was" ]]; then
+    explorer_set_design "$DESIGN_ID" || die "could not switch Lock Screen Explorer back to Afterburn"
+    say "Lock Screen Explorer shows the Afterburn design again"
+  else
+    say "your lock design changed while Afterburn was away; leaving it"
+  fi
+  rm -f "$PARKED"
+}
+
 install_layer() {
   [[ -f $EMBER_SRC ]] || die "missing $EMBER_SRC"
+  if explorer_mode || [[ $(plugin_state "$EXPLORER_ID") == enabled ]]; then
+    install_explorer
+    return
+  fi
   [[ -f $OFFICIAL_LOCK_DIR/LockView.qml ]] || die "official lock not found at $OFFICIAL_LOCK_DIR"
   command -v omarchy-plugin-clone >/dev/null || die "omarchy-plugin-clone not on PATH"
 
@@ -343,7 +437,10 @@ recolor_layer() {
     say "unknown or missing ember style '$style', using rise"
     style=rise
   fi
-  if [[ ! -d $clone_dir ]] || ! is_our_clone "$clone_dir"; then
+  if explorer_mode; then
+    clone_dir=$DESIGN_EMBERS
+    [[ -d $clone_dir ]] || { say "no Afterburn design embers, nothing to recolor"; return 0; }
+  elif [[ ! -d $clone_dir ]] || ! is_our_clone "$clone_dir"; then
     say "no clone $CLONE_ID of ours, nothing to recolor"
     return 0
   fi
@@ -486,10 +583,10 @@ unpark_layer() {
 main() {
   case "${1:-}" in
     install) install_layer ;;
-    uninstall) uninstall_layer ;;
+    uninstall) if explorer_mode; then uninstall_explorer; else uninstall_layer; fi ;;
     recolor) shift; take_lock; recolor_layer "$@" ;;
-    park) take_lock; park_layer ;;
-    unpark) take_lock; unpark_layer ;;
+    park) take_lock; if explorer_mode; then park_explorer; else park_layer; fi ;;
+    unpark) take_lock; if explorer_mode; then unpark_explorer; else unpark_layer; fi ;;
     *) die "usage: $(basename "$0") install|uninstall|park|unpark|recolor [FLARE EMBER RUST [STYLE]]" ;;
   esac
 }

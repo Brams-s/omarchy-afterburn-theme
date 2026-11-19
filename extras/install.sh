@@ -44,16 +44,19 @@ BASHRC="$HOME/.bashrc"
 
 # Append one guarded line ($1) to ~/.bashrc unless it is there already. $2 names the marker that tells
 # uninstall.sh a newline was added before it (the file did not end in one), so it can drop that again.
+# $3 is the rc file (default ~/.bashrc; the zsh line passes ~/.zshrc, which it only touches when it exists).
 add_bashrc_line() {
-  grep -qxF "$1" "$BASHRC" 2>/dev/null && return 0
+  local rc=${3:-$BASHRC}
+  grep -qxF "$1" "$rc" 2>/dev/null && return 0
   mkdir -p "$STATE_DIR"
-  [[ -e $BASHRC ]] || : > "$STATE_DIR/bashrc-created"   # no .bashrc yet: uninstall.sh removes ours again if it ends up empty
-  if [[ -s $BASHRC && -n $(tail -c1 "$BASHRC") ]]; then
-    echo >> "$BASHRC"
+  [[ -e $rc ]] || : > "$STATE_DIR/bashrc-created"   # no .bashrc yet: uninstall.sh removes ours again if it ends up empty
+  if [[ -s $rc && -n $(tail -c1 "$rc") ]]; then
+    echo >> "$rc"
     : > "$STATE_DIR/$2"
   fi
-  echo "$1" >> "$BASHRC"
+  echo "$1" >> "$rc"
 }
+ZSHRC="${ZDOTDIR:-$HOME}/.zshrc"
 
 # Each step records here just before it changes something, so a failure can say what was touched.
 CHANGED=()
@@ -283,6 +286,13 @@ elif ask "Add the subtle pack? (slow-turning border, dimmed background windows, 
   grep -qxF "$AB_BASHRC_LINE" "$BASHRC" 2>/dev/null || CHANGED+=("~/.bashrc: fail-effect line appended")
   add_bashrc_line "$AB_BASHRC_LINE" bashrc-newline
   ok "~/.bashrc: one guarded line sources the fail effect"
+  # zsh users get the zsh twin. Only into a ~/.zshrc that exists: a missing one would make zsh skip its
+  # first-run setup, and an absent file means zsh is not what you use.
+  if [[ -f $ZSHRC ]]; then
+    grep -qxF "$AB_ZSHRC_LINE" "$ZSHRC" 2>/dev/null || CHANGED+=("~/.zshrc: fail-effect line appended")
+    add_bashrc_line "$AB_ZSHRC_LINE" zshrc-newline "$ZSHRC"
+    ok "~/.zshrc: one guarded line sources the fail effect"
+  fi
 
   # User service: the watcher handles fullscreen quiet, battery saver and the heat level.
   CHANGED+=("afterburn-watch user service enabled")
@@ -308,7 +318,14 @@ LOCK="$HERE/lock/lock-embers.sh"
 echo
 if [[ ! -f $LOCK ]]; then
   skip "lock screen: $LOCK not found, skipped"
-elif ask "Animate the lock screen with embers? (clones Omarchy's lock plugin; it stops getting Omarchy's lock-screen updates until you uninstall)"; then
+elif omarchy-plugin-list 2>/dev/null | awk '$1 == "io.github.sirjul1337.lock-explorer" && $2 == "enabled" { f = 1 } END { exit !f }'; then
+  LOCK_Q="Add an Afterburn lock design with embers to Lock Screen Explorer? (a design file in ~/.config/omarchy/lock-designs; the explorer itself is not changed)"
+else
+  LOCK_Q="Animate the lock screen with embers? (clones Omarchy's lock plugin; it stops getting Omarchy's lock-screen updates until you uninstall)"
+fi
+if [[ -z ${LOCK_Q:-} ]]; then
+  :
+elif ask "$LOCK_Q"; then
   # lock-embers.sh picks the clone id (afterburn.lock; an older install keeps its <user>.lock) and writes
   # the marker $STATE_DIR/lock-embers with it as soon as the clone exists. If a step fails after the
   # built-in lock was switched off, it puts the built-in lock back before it exits.
