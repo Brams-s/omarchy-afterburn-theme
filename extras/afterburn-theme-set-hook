@@ -28,7 +28,7 @@ OURS_FX="$STATE_DIR/cursor-fx-set"
 # dark|light of the Afterburn theme this hook last set. cursor-fx reads the terminal background only
 # when it switches effects, so going dark -> light (or back) has to switch even if the effect is the same.
 FX_MODE="$STATE_DIR/cursor-fx-mode"
-# Written by `afterburn saver on` when it turned `cursor-fx subtle` on from off. Not the user's own setting.
+# Written by an older `afterburn saver on` when it turned `cursor-fx subtle` on from off. Not the user's own setting.
 SUBTLE_REC="$STATE_DIR/subtle-by-afterburn"
 GHOSTTY=${XDG_CONFIG_HOME:-$HOME/.config}/ghostty/config; [[ -e $GHOSTTY ]] || GHOSTTY+=.ghostty
 LOCK_SH="$EXTRAS/lock/lock-embers.sh"

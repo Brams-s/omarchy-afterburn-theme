@@ -1,5 +1,6 @@
-"""Quiet and saver each own one thing: quiet holds the cursor effect off (and saves it in cursor-pre-quiet),
-saver only turns `cursor-fx subtle` on. They overlap in any order, and neither may leave the effect off."""
+"""Quiet and saver both hold the cursor effect off (saved in cursor-pre-quiet) and it comes back once neither is
+on. They overlap in any order. Saver never turns `cursor-fx subtle` on (it still redraws every frame); a
+subtle-by-afterburn record left by an older version is undone once."""
 import unittest
 
 from support import REPO, Sandbox
@@ -56,46 +57,53 @@ class CursorBookkeeping(unittest.TestCase):
         self.ab("quiet", "off")
         self.assertEqual((self.effect(), self.pre.exists()), ("lightning", False))
 
-    def test_saver_alone_never_holds_the_effect_off(self):
+    def test_saver_alone_holds_the_effect_off_and_puts_it_back(self):
         self.ab("saver", "on")
-        self.assertEqual((self.effect(), self.subtle(), self.pre.exists()), ("lightning", "on", False))
+        self.assertEqual((self.effect(), self.pre.read_text().strip()), ("off", "lightning"))
         self.ab("saver", "off")
-        self.assertEqual((self.effect(), self.subtle(), self.pre.exists()), ("lightning", "off", False))
+        self.assertEqual((self.effect(), self.pre.exists()), ("lightning", False))
 
-    def test_saver_preserves_mixed_or_already_on_subtle_preferences(self):
-        for subtle in ("mixed", "on"):
+    def test_saver_never_touches_your_subtle_setting(self):
+        for subtle in ("off", "mixed", "on"):
             with self.subTest(subtle=subtle):
                 self.sb.write_state_text(self.sb.state_dir / "saver", "off\n")
                 self.sb.write_state_text(self.sb.root / "subtle", subtle + "\n")
                 self.sb.calls.write_text("")
                 self.ab("saver", "on")
-                self.assertEqual(self.subtle(), subtle)
-                self.assertFalse((self.sb.state_dir / "subtle-by-afterburn").exists())
                 self.ab("saver", "off")
                 self.assertEqual(self.subtle(), subtle)
-                self.assertFalse([c for c in self.sb.call_log() if c.startswith("cursor-fx subtle ")])
+                self.assertFalse([c for c in self.sb.call_log() if c.startswith("cursor-fx subtle")])
 
-    def test_quiet_ending_while_saver_is_on_brings_the_effect_back(self):  # spec bug 1
+    def test_a_subtle_an_older_saver_turned_on_is_turned_off_once(self):
+        self.sb.write_state_text(self.sb.root / "subtle", "on\n")
+        self.sb.write_state_text(self.sb.state_dir / "subtle-by-afterburn", "")
+        self.ab("apply")
+        self.assertEqual(self.subtle(), "off")
+        self.assertFalse((self.sb.state_dir / "subtle-by-afterburn").exists())
+
+    def test_quiet_ending_while_saver_is_on_keeps_the_effect_off_until_saver_ends(self):
         self.ab("saver", "on")
         self.ab("quiet", "on")
-        self.assertEqual((self.effect(), self.pre.read_text().strip()), ("off", "lightning"))
         self.ab("quiet", "off")
-        self.assertEqual((self.effect(), self.subtle(), self.pre.exists()), ("lightning", "on", False))
+        self.assertEqual((self.effect(), self.pre.read_text().strip()), ("off", "lightning"))
+        self.ab("saver", "off")
+        self.assertEqual((self.effect(), self.pre.exists()), ("lightning", False))
         self.assertIn("cursor-fx lightning", self.sb.call_log())
 
     def test_saver_ending_while_quiet_is_on_leaves_the_effect_off_until_quiet_ends(self):
         self.ab("quiet", "on")
         self.ab("saver", "on")
         self.ab("saver", "off")
-        self.assertEqual((self.effect(), self.subtle(), self.pre.read_text().strip()), ("off", "off", "lightning"))
+        self.assertEqual((self.effect(), self.pre.read_text().strip()), ("off", "lightning"))
         self.ab("quiet", "off")
         self.assertEqual((self.effect(), self.pre.exists()), ("lightning", False))
 
-    def test_set_cursor_fx_under_saver_is_applied_now(self):  # spec bug 2
+    def test_set_cursor_fx_under_saver_waits_for_saver_to_end(self):
         self.ab("saver", "on")
         self.ab("set", "CURSOR_FX", "cyber")
+        self.assertEqual((self.effect(), self.pre.read_text().strip()), ("off", "cyber"))
+        self.ab("saver", "off")
         self.assertEqual(self.effect(), "cyber")
-        self.assertIn("cursor-fx cyber", self.sb.call_log())
 
     def test_set_cursor_fx_under_quiet_waits_for_quiet_to_end(self):
         self.ab("quiet", "on")
@@ -104,12 +112,14 @@ class CursorBookkeeping(unittest.TestCase):
         self.ab("quiet", "off")
         self.assertEqual(self.effect(), "cyber")
 
-    def test_the_hook_switches_the_effect_under_saver(self):  # spec bug 2
+    def test_the_hook_under_saver_makes_its_effect_the_one_that_comes_back(self):
         self.sb.write_state_text(self.sb.home / ".config/afterburn/afterburn.conf", "CURSOR_FX=neon\n")
         self.ab("saver", "on")
         r = self.sb.run(["/bin/bash", str(HOOK), "afterburn"])
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual((self.effect(), self.pre.exists()), ("neon", False))
+        self.assertEqual((self.effect(), self.pre.read_text().strip()), ("off", "neon"))
+        self.ab("saver", "off")
+        self.assertEqual(self.effect(), "neon")
 
     def test_stale_hook_does_nothing_in_either_direction(self):
         self.sb.use_stubs(["afterburn"])
@@ -170,13 +180,6 @@ class CursorBookkeeping(unittest.TestCase):
         self.assertEqual(self.effect(), "off")
         self.hook("nord")
         self.assertEqual(self.effect(), "lightning")
-
-    def test_a_stale_pre_quiet_from_an_older_version_is_cleared_while_only_saver_is_on(self):
-        self.sb.write_state_text(self.sb.state_dir / "saver", "on\n")
-        self.sb.write_state_text(self.pre, "lightning\n")
-        self.start("off")
-        self.ab("apply")
-        self.assertEqual((self.effect(), self.subtle(), self.pre.exists()), ("lightning", "on", False))
 
     def test_apply_recovers_a_cursor_left_off_by_interrupted_quiet_exit(self):
         self.sb.write_state_text(self.sb.state_dir / "quiet", "off\n")

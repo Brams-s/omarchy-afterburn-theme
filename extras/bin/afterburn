@@ -9,7 +9,7 @@
 #   afterburn apply                   regenerate hyprland.lua from the conf and reload Hyprland
 #   afterburn level cool|normal|hot   heat level (border, shadow, optional wallpaper swap)
 #   afterburn quiet on|off            fullscreen mode: no shadow, no spin, cursor-fx off
-#   afterburn saver on|off            battery mode: no shadow, no spin, cursor-fx subtle
+#   afterburn saver on|off            battery mode: no shadow, no spin, cursor-fx off
 #   afterburn laptop auto|on|off      LAPTOP_MODE; on/off also switch saver
 #   afterburn colors [--menu]         palette: swatches on a tty, Omarchy menu otherwise
 #   afterburn locate ZIP              US ZIP -> LAT/LON for the weather heat source
@@ -278,36 +278,28 @@ cmd_apply() {
   apply_visuals
 }
 
-# cursor-fx helpers. quiet and saver each own one thing, and either can end first:
-#   quiet holds the effect off. The one that was running is saved in cursor-pre-quiet (the file exists only
-#   while quiet holds it off) and put back when quiet ends. (prev-cursor-fx is a different thing: the effect
-#   from before Afterburn took over, kept by the theme-set hook and restored when you leave it.)
-#   saver turns `cursor-fx subtle` on and never touches the effect itself. subtle-by-afterburn is its record:
-#   it exists only when saver turned subtle on from off, so only that case is turned off again. A subtle you
-#   had on yourself is never touched.
+# cursor-fx helpers. quiet and saver both hold the effect off, and either can end first: the effect stays off
+#   while either is on. The one that was running is saved in cursor-pre-quiet (the file exists only while it is
+#   held off) and put back when both have ended. (prev-cursor-fx is a different thing: the effect from before
+#   Afterburn took over, kept by the theme-set hook and restored when you leave it.)
+#   Saver holds it off rather than turning `cursor-fx subtle` on: the shaders animate every frame, so subtle
+#   still redraws the whole window at the display's refresh rate (~27 W measured on a 120 Hz laptop panel).
+#   subtle-by-afterburn is what older versions left when their saver turned subtle on: that is undone once.
 CFX_PRE="$STATE/cursor-pre-quiet"
 SUBTLE_REC="$STATE/subtle-by-afterburn"
 cfx_now() { ab_cursor_now; }
 
-# on, off, mixed or n/a, as `cursor-fx subtle` reports it ("Subtle version: off (cursor-fx subtle on|off)"); empty if unreadable.
-cfx_subtle_state() {
-  cursor-fx subtle 2>/dev/null | sed -n 's/^[^:]*: \(on\|off\|mixed\|n\/a\) (.*/\1/p' | head -n1
-}
-
 cfx_sync() {
   command -v cursor-fx >/dev/null 2>&1 || return 0
   mkdir -p "$STATE"
-  if flag_on quiet; then
+  if flag_on quiet || flag_on saver; then
     [[ -f $CFX_PRE ]] || cfx_now > "$CFX_PRE"
     cursor-fx off >/dev/null 2>&1 || true
   elif [[ -f $CFX_PRE ]]; then
     cursor-fx "$(cat "$CFX_PRE")" >/dev/null 2>&1 || true
     rm -f "$CFX_PRE"
   fi
-  if flag_on saver; then
-    if [[ ! -f $SUBTLE_REC && $(cfx_subtle_state) == off ]]; then : > "$SUBTLE_REC"; fi
-    [[ -f $SUBTLE_REC ]] && cursor-fx subtle on >/dev/null 2>&1 || true
-  elif [[ -f $SUBTLE_REC ]]; then
+  if [[ -f $SUBTLE_REC ]]; then
     cursor-fx subtle off >/dev/null 2>&1 || true
     rm -f "$SUBTLE_REC"
   fi
