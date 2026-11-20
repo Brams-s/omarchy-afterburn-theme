@@ -26,8 +26,9 @@ fi
 . "$HERE/afterburn-theme.sh"   # AB_BASHRC_LINE
 HOOK_NAME=50-afterburn-extras
 HOOKS="$HOME/.config/omarchy/hooks/theme-set.d"
-CFX_REPO=https://github.com/Avarce/ghostty-cursor-fx.git
-CFX_PIN=252df6c6344fe68ab8715d3e4a57f73ad91ed7ed   # version tested with Afterburn
+# Vendored copy of ghostty-cursor-fx by Avarce (MIT) at commit 252df6c6344fe68ab8715d3e4a57f73ad91ed7ed, the
+# version tested with Afterburn (the upstream repo was taken down; the commit survives in its forks).
+CFX_SRC="$HERE/ghostty-cursor-fx"
 CFX_DIR="$HOME/.local/share/afterburn/ghostty-cursor-fx"
 YES=false; [[ ${1:-} == --yes || ${1:-} == -y ]] && YES=true
 
@@ -86,8 +87,8 @@ cat <<'EOF'
     "open in terminal" action. uninstall.sh puts your old default back.
   • FONT: switches your system font to JetBrainsMono Nerd Font (terminals, bar, menus).
     uninstall.sh puts your old font back.
-  • THIRD-PARTY CODE: downloads ghostty-cursor-fx by Avarce (MIT) from GitHub, pinned
-    to one tested commit, and runs its installer. It writes ~/.local/bin/cursor-fx,
+  • THIRD-PARTY CODE: copies ghostty-cursor-fx by Avarce (MIT, bundled with this theme at
+    one tested commit) and runs its installer. It writes ~/.local/bin/cursor-fx,
     ~/.config/ghostty/shaders/ and cursor-effects/, edits ~/.config/ghostty/config,
     and, if ~/.pi/agent exists, adds a pi extension and turns on showHardwareCursor.
     Anything it replaces is copied to ~/.local/state/afterburn/ghostty-savepoints/ first.
@@ -175,8 +176,8 @@ elif ask "Install cursor-fx, animated Ghostty cursors by Avarce (MIT)?"; then
   CHANGED+=("cursor-fx installed (its own installer edits Ghostty config; old config in $AB_SAVEPOINTS/)")
   [[ -f $HOME/.config/ghostty/config ]] || omarchy refresh config ghostty/config >/dev/null
   rm -rf "$CFX_DIR"
-  git clone -q "$CFX_REPO" "$CFX_DIR"
-  git -C "$CFX_DIR" -c advice.detachedHead=false checkout -q "$CFX_PIN"
+  mkdir -p "$(dirname "$CFX_DIR")"
+  cp -a "$CFX_SRC" "$CFX_DIR"
   (cd "$CFX_DIR" && ./install.sh >/dev/null)
   ok "cursor-fx installed (old Ghostty config backed up in $AB_SAVEPOINTS/)"
 else
