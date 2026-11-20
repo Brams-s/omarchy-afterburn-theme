@@ -5,7 +5,8 @@ import unittest
 
 from support import REPO, Sandbox
 
-STILL = "custom-shader-animation = false  # afterburn battery saver (removed when you plug in)"
+MARK = "# afterburn battery saver: shaders draw only when the terminal changes (removed when you plug in)"
+STILL = "custom-shader-animation = false"   # no comment after the value: Ghostty rejects the whole line
 
 HOOK = REPO / "extras" / "afterburn-theme-set-hook"
 
@@ -66,7 +67,7 @@ class CursorBookkeeping(unittest.TestCase):
         self.ghostty.write_text("font-size = 9\ncustom-shader = shaders/mine.glsl\nconfig-file = cursor-effects/lightning.conf\n")
         self.ab("saver", "on")
         self.assertEqual((self.effect(), self.still(), self.pre.exists()), ("lightning", 1, False))
-        self.assertTrue(self.ghostty.read_text().endswith(STILL + "\n"))   # last, so it wins
+        self.assertTrue(self.ghostty.read_text().endswith(MARK + "\n" + STILL + "\n"))   # last, so it wins
         self.ab("saver", "on")                                                # again: still one line, no reload
         self.assertEqual(self.still(), 1)
         self.assertEqual(self.sb.call_log().count("pkill -USR2 -x ghostty"), 1)
@@ -74,6 +75,21 @@ class CursorBookkeeping(unittest.TestCase):
         self.assertEqual(self.ghostty.read_text(),
                          "font-size = 9\ncustom-shader = shaders/mine.glsl\nconfig-file = cursor-effects/lightning.conf\n")
         self.assertEqual(self.sb.call_log().count("pkill -USR2 -x ghostty"), 2)
+
+    def test_the_one_line_form_an_earlier_version_wrote_is_cleaned_up(self):
+        old = STILL + "  # afterburn battery saver (removed when you plug in)"
+        self.ghostty.write_text("font-size = 9\n" + old + "\n")
+        self.ab("apply")                                       # saver off
+        self.assertEqual(self.ghostty.read_text(), "font-size = 9\n")
+        self.ghostty.write_text("font-size = 9\n" + old + "\n")
+        self.ab("saver", "on")
+        self.assertEqual(self.ghostty.read_text(), "font-size = 9\n" + MARK + "\n" + STILL + "\n")
+
+    def test_your_own_animation_line_is_never_touched(self):
+        self.ghostty.write_text("font-size = 9\n" + STILL + "\n")
+        self.ab("saver", "on")
+        self.ab("saver", "off")
+        self.assertEqual(self.ghostty.read_text(), "font-size = 9\n" + STILL + "\n")
 
     def test_saver_keeps_a_symlinked_config_a_symlink(self):
         real = self.sb.home / "dotfiles-ghostty"

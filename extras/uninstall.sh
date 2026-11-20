@@ -111,7 +111,7 @@ if [[ -f $STATE_DIR/subtle-by-afterburn ]] && command -v cursor-fx >/dev/null; t
   cursor-fx subtle off >/dev/null 2>&1 && echo "  ✓ cursor subtle mode restored"
 fi
 # Battery saver's no-animation line in the Ghostty config.
-if grep -qxF "$AB_STILL_LINE" "$(ab_ghostty_config)" 2>/dev/null; then
+if grep -qF -e "$AB_STILL_MARK" -e "$AB_STILL_LINE  # afterburn battery saver" "$(ab_ghostty_config)" 2>/dev/null; then
   ab_ghostty_still off && echo "  ✓ Ghostty shader animation restored"
 fi
 

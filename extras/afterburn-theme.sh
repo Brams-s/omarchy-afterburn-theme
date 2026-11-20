@@ -44,23 +44,28 @@ ab_cursor_now() {
 
 # Battery saver keeps the cursor shaders but stops Ghostty animating them: any animated custom shader makes Ghostty
 # redraw every frame, ~22 W on a 120 Hz laptop panel whatever the shader. Without animation a shader draws only when
-# the terminal changes (typing, output), so effects play choppier but cost next to nothing. One marked line, last in
-# the file so it wins; written in place, so a symlinked config stays a symlink.
-AB_STILL_LINE='custom-shader-animation = false  # afterburn battery saver (removed when you plug in)'
-# ab_ghostty_still on|off: add or remove that line, and reload Ghostty when it changed.
+# the terminal changes (typing, output), so effects play choppier but cost next to nothing. Two lines, last in the
+# file so the setting wins: a marker comment and the setting (Ghostty has no end-of-line comments: a "# ..." after
+# the value makes the whole line invalid). Written in place, so a symlinked config stays a symlink.
+AB_STILL_MARK='# afterburn battery saver: shaders draw only when the terminal changes (removed when you plug in)'
+AB_STILL_LINE='custom-shader-animation = false'
+# ab_ghostty_still on|off: add or remove those lines, and reload Ghostty when the file changed.
 ab_ghostty_still() {
   local c rest
   c=$(ab_ghostty_config)
   [[ -f $c ]] || return 0
+  # Everything but ours: the marker, the setting right after it, and the one-line form an earlier version wrote.
+  rest=$(awk -v m="$AB_STILL_MARK" -v l="$AB_STILL_LINE" '
+    skip { skip = 0; if ($0 == l) next }
+    $0 == m { skip = 1; next }
+    index($0, l "  # afterburn battery saver") == 1 { next }
+    { print }' "$c") || return 0
   if [[ ${1:-} == on ]]; then
-    grep -qxF "$AB_STILL_LINE" "$c" && return 0
-    [[ ! -s $c || -z $(tail -c1 "$c") ]] || printf '\n' >> "$c"
-    printf '%s\n' "$AB_STILL_LINE" >> "$c" || return 0
-  else
-    grep -qxF "$AB_STILL_LINE" "$c" || return 0
-    rest=$(grep -vxF "$AB_STILL_LINE" "$c")
-    printf '%s\n' "$rest" > "$c" || return 0
+    [[ -z $rest ]] || rest+=$'\n'
+    rest+="$AB_STILL_MARK"$'\n'"$AB_STILL_LINE"
   fi
+  [[ $rest == "$(cat "$c")" ]] && return 0
+  printf '%s\n' "$rest" > "$c" || return 0
   pkill -USR2 -x ghostty >/dev/null 2>&1 || true
 }
 
