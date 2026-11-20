@@ -110,6 +110,10 @@ fi
 if [[ -f $STATE_DIR/subtle-by-afterburn ]] && command -v cursor-fx >/dev/null; then
   cursor-fx subtle off >/dev/null 2>&1 && echo "  ✓ cursor subtle mode restored"
 fi
+# Battery saver's no-animation line in the Ghostty config.
+if grep -qxF "$AB_STILL_LINE" "$(ab_ghostty_config)" 2>/dev/null; then
+  ab_ghostty_still off && echo "  ✓ Ghostty shader animation restored"
+fi
 
 # cursor-fx: only if the installer put it there (its checkout in ~/.local/share/afterburn is the proof: install.sh
 # only clones it when it installs cursor-fx). Everything is moved into one backup folder, so it can be put back.

@@ -140,6 +140,7 @@ exit 0
 ''',
     "cursor-fx": "#!/bin/bash\necho \"cursor-fx $*\" >> \"$SB/calls.log\"\n",
     "ghostty": "#!/bin/bash\nexit 0\n",
+    "pkill": "#!/bin/bash\necho \"pkill $*\" >> \"$SB/calls.log\"\n",   # the Ghostty reload: never a real signal
     # `afterburn` as the watcher calls it: just record it.
     "afterburn": "#!/bin/bash\necho \"afterburn $*\" >> \"$SB/calls.log\"\n",
 }
