@@ -137,7 +137,7 @@ watch_fullscreen() {
   done
 }
 
-# --- power: battery means saver mode -----------------------------------------
+# --- power: the power-saver profile (or, without a profile daemon, battery) means saver mode ---
 # Only a system battery makes this a laptop (see afterburn-power.sh). A wireless mouse reporting
 # "discharging" on a desktop must not turn the saver on.
 # $battery (yes|no) is asked once per watcher run: a machine does not gain or lose its own battery while up.
@@ -160,20 +160,26 @@ power_tick() {  # reads and sets $saver, the last value we applied, and $battery
     fi
     return 0
   fi
-  local want=on
-  ab_on_ac && want=off
+  local want=off
+  ab_saver_wanted && want=on
   if [[ $want != "${saver:-}" ]]; then hypr_pick; afterburn saver "$want" && saver=$want; fi
+}
+
+# One line per power source or power profile change (picked in Omarchy's menu, or by Omarchy on plug/unplug).
+power_events() {
+  command -v gdbus >/dev/null &&
+    gdbus monitor --system --dest net.hadess.PowerProfiles --object-path /net/hadess/PowerProfiles 2>/dev/null &
+  command -v upower >/dev/null && upower --monitor 2>/dev/null
+  wait
 }
 
 watch_power() {
   local saver="" battery=""
   while :; do
     power_tick
-    if command -v upower >/dev/null; then
-      # process substitution keeps the loop in this shell, so $saver persists
-      while read -r _; do power_tick; done < <(upower --monitor 2>/dev/null)
-    fi
-    sleep 30   # upower exited, or there is no upower: poll
+    # process substitution keeps the loop in this shell, so $saver persists
+    while read -r _; do power_tick; done < <(power_events)
+    sleep 30   # the monitors exited, or there are none: poll
   done
 }
 

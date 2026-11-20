@@ -378,13 +378,15 @@ mode_line() {
   esac
 }
 
-# Why saver is on, from what the watcher looks at (LAPTOP_MODE and the system battery). Needs LAPTOP_MODE set.
+# Why saver is on, from what the watcher looks at (LAPTOP_MODE, the power profile and the system battery). Needs LAPTOP_MODE set.
 saver_reason() {
   local bat
   bat=$(ab_system_batteries | head -n1)
   if [[ $LAPTOP_MODE == on ]]; then
     echo "LAPTOP_MODE=on forces it; follow the power source again with: afterburn laptop auto"
-  elif [[ $LAPTOP_MODE == auto && -n $bat ]] && ! ab_on_ac; then
+  elif [[ $LAPTOP_MODE == auto && -n $bat && -n $(ab_power_profile) ]] && ab_saver_wanted; then
+    echo "power profile is power-saver; pick balanced or performance (Omarchy's power menu) to animate again"
+  elif [[ $LAPTOP_MODE == auto && -n $bat ]] && ab_saver_wanted; then
     echo "on battery: $bat is $(ab_ps_attr "$POWER_DIR/$bat" status | tr '[:upper:]' '[:lower:]'), no AC adapter online"
   elif [[ $LAPTOP_MODE == auto && -z $bat ]]; then
     echo "no system battery found (wireless mouse and keyboard batteries do not count), so power is not the cause; left over or set by hand. Turn it off: afterburn saver off"
@@ -543,7 +545,7 @@ cmd_laptop() {
     auto)
       echo "laptop: auto (afterburn-watch decides from the power source)"
       # Put saver in line with the power source now, not at the watcher's next change.
-      if ab_has_battery && ! ab_on_ac; then cmd_mode saver on; else cmd_mode saver off; fi ;;
+      if ab_has_battery && ab_saver_wanted; then cmd_mode saver on; else cmd_mode saver off; fi ;;
   esac
 }
 
