@@ -141,7 +141,7 @@ watch_fullscreen() {
 # Only a system battery makes this a laptop (see afterburn-power.sh). A wireless mouse reporting
 # "discharging" on a desktop must not turn the saver on.
 # $battery (yes|no) is asked once per watcher run: a machine does not gain or lose its own battery while up.
-power_tick() {  # reads and sets $saver, the last value we applied, and $battery (both set by watch_power)
+power_tick() {  # reads and sets $saver, the last value we applied, $profile and $battery (set by watch_power)
   load_conf
   is_afterburn || return 0
   # Not auto: the saver is set by hand. Forget what we applied, so the next auto tick puts it back in line.
@@ -160,9 +160,15 @@ power_tick() {  # reads and sets $saver, the last value we applied, and $battery
     fi
     return 0
   fi
-  local want=off
+  local want=off p
   ab_saver_wanted && want=on
-  if [[ $want != "${saver:-}" ]]; then hypr_pick; afterburn saver "$want" && saver=$want; fi
+  p=$(ab_power_profile)
+  if [[ $want != "${saver:-}" ]]; then
+    hypr_pick; afterburn saver "$want" && saver=$want && profile=$p
+  elif [[ $p != "${profile-unset}" ]]; then
+    # balanced <-> performance: the saver stays off, only the cursor animation changes
+    afterburn cursor-sync >/dev/null && profile=$p
+  fi
 }
 
 # One line per power source or power profile change (picked in Omarchy's menu, or by Omarchy on plug/unplug).
@@ -174,7 +180,7 @@ power_events() {
 }
 
 watch_power() {
-  local saver="" battery=""
+  local saver="" battery="" profile=unset
   while :; do
     power_tick
     # process substitution keeps the loop in this shell, so $saver persists

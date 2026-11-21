@@ -74,3 +74,9 @@ ab_saver_wanted() {
   p=$(ab_power_profile)
   if [[ -n $p ]]; then [[ $p == power-saver ]]; else ! ab_on_ac; fi
 }
+
+# Balanced on a laptop (LAPTOP_MODE=auto): keep the cursor effect but stop Ghostty animating it. Power-saver turns
+# the effect off (the saver), performance animates it. Ghostty animating on a 120 Hz laptop panel costs ~17 W.
+ab_cursor_still_wanted() {
+  [[ ${LAPTOP_MODE:-auto} == auto && $(ab_power_profile) == balanced ]] && ab_has_battery
+}

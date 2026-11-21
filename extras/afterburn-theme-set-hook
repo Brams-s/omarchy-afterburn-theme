@@ -19,7 +19,7 @@ still_current() { [[ $THEME == "$(cat "$CURRENT.name" 2>/dev/null)" ]]; }
 still_current || exit 0
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/afterburn"
 STATE="$STATE_DIR/prev-cursor-fx"
-# Written by `afterburn quiet` only while it holds the cursor effect off (saver leaves the effect running).
+# Written by `afterburn quiet` or `afterburn saver` only while they hold the cursor effect off.
 # Not the user's own effect.
 PRE_QUIET="$STATE_DIR/cursor-pre-quiet"
 # The effect this hook (or `afterburn set CURSOR_FX`) last switched on. Moving from one edition to the

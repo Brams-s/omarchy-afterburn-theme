@@ -1,6 +1,7 @@
-"""Quiet and saver each own one thing: quiet holds the cursor effect off (and saves it in cursor-pre-quiet), saver
-only stops Ghostty animating shaders (one marked line in its config). They overlap in any order, and neither may
-leave the effect off. A subtle-by-afterburn record left by an older saver is undone once."""
+"""Quiet and saver (the power-saver profile) hold the cursor effect off and save it in cursor-pre-quiet; they overlap
+in any order, and the effect comes back when both end. The balanced profile on a laptop keeps the effect but stops
+Ghostty animating shaders (one marked line in its config); performance animates. A subtle-by-afterburn record left
+by an older saver is undone once."""
 import unittest
 
 from support import REPO, Sandbox
@@ -63,32 +64,57 @@ class CursorBookkeeping(unittest.TestCase):
     def still(self):
         return self.ghostty.read_text().splitlines().count(STILL)
 
-    def test_saver_stops_animation_and_keeps_the_effect(self):
-        self.ghostty.write_text("font-size = 9\ncustom-shader = shaders/mine.glsl\nconfig-file = cursor-effects/lightning.conf\n")
+    def profile(self, name):
+        """A laptop (system battery) whose power-profiles-daemon reports this profile."""
+        self.sb.supply("BAT0", "Battery", scope="System", status="Discharging", capacity=70)
+        (self.sb.root / "profile").write_text(name + "\n")
+
+    def test_saver_turns_the_effect_off_and_puts_it_back(self):
         self.ab("saver", "on")
+        self.assertEqual((self.effect(), self.pre.read_text().strip(), self.still()), ("off", "lightning", 0))
+        self.ab("saver", "off")
+        self.assertEqual((self.effect(), self.pre.exists()), ("lightning", False))
+
+    def test_balanced_stops_animation_and_keeps_the_effect(self):
+        self.ghostty.write_text("font-size = 9\ncustom-shader = shaders/mine.glsl\nconfig-file = cursor-effects/lightning.conf\n")
+        self.profile("balanced")
+        self.ab("cursor-sync")
         self.assertEqual((self.effect(), self.still(), self.pre.exists()), ("lightning", 1, False))
         self.assertTrue(self.ghostty.read_text().endswith(MARK + "\n" + STILL + "\n"))   # last, so it wins
-        self.ab("saver", "on")                                                # again: still one line, no reload
+        self.ab("cursor-sync")                                                # again: still one line, no reload
         self.assertEqual(self.still(), 1)
         self.assertEqual(self.sb.call_log().count("pkill -USR2 -x ghostty"), 1)
-        self.ab("saver", "off")
+        self.profile("performance")
+        self.ab("cursor-sync")
         self.assertEqual(self.ghostty.read_text(),
                          "font-size = 9\ncustom-shader = shaders/mine.glsl\nconfig-file = cursor-effects/lightning.conf\n")
         self.assertEqual(self.sb.call_log().count("pkill -USR2 -x ghostty"), 2)
 
+    def test_balanced_on_a_desktop_or_with_laptop_mode_forced_animates(self):
+        (self.sb.root / "profile").write_text("balanced\n")              # no system battery: a desktop
+        self.ab("cursor-sync")
+        self.assertEqual(self.still(), 0)
+        self.profile("balanced")
+        self.sb.write_state_text(self.sb.home / ".config/afterburn/afterburn.conf", "LAPTOP_MODE=off\n")
+        self.ab("cursor-sync")
+        self.assertEqual(self.still(), 0)
+
     def test_the_one_line_form_an_earlier_version_wrote_is_cleaned_up(self):
         old = STILL + "  # afterburn battery saver (removed when you plug in)"
         self.ghostty.write_text("font-size = 9\n" + old + "\n")
-        self.ab("apply")                                       # saver off
+        self.ab("apply")                                       # no daemon: animates
         self.assertEqual(self.ghostty.read_text(), "font-size = 9\n")
         self.ghostty.write_text("font-size = 9\n" + old + "\n")
-        self.ab("saver", "on")
+        self.profile("balanced")
+        self.ab("cursor-sync")
         self.assertEqual(self.ghostty.read_text(), "font-size = 9\n" + MARK + "\n" + STILL + "\n")
 
     def test_your_own_animation_line_is_never_touched(self):
         self.ghostty.write_text("font-size = 9\n" + STILL + "\n")
-        self.ab("saver", "on")
-        self.ab("saver", "off")
+        self.profile("balanced")
+        self.ab("cursor-sync")
+        self.profile("performance")
+        self.ab("cursor-sync")
         self.assertEqual(self.ghostty.read_text(), "font-size = 9\n" + STILL + "\n")
 
     def test_saver_keeps_a_symlinked_config_a_symlink(self):
@@ -96,14 +122,17 @@ class CursorBookkeeping(unittest.TestCase):
         real.write_text("font-size = 9\n")
         self.ghostty.unlink()
         self.ghostty.symlink_to(real)
-        self.ab("saver", "on")
-        self.ab("saver", "off")
+        self.profile("balanced")
+        self.ab("cursor-sync")
+        self.profile("performance")
+        self.ab("cursor-sync")
         self.assertTrue(self.ghostty.is_symlink())
         self.assertEqual(real.read_text(), "font-size = 9\n")
 
-    def test_leaving_afterburn_drops_the_saver_line(self):
+    def test_leaving_afterburn_drops_the_still_line(self):
         self.hook("afterburn")
-        self.ab("saver", "on")
+        self.profile("balanced")
+        self.ab("cursor-sync")
         self.assertEqual(self.still(), 1)
         self.hook("nord")
         self.assertEqual(self.still(), 0)
@@ -126,12 +155,14 @@ class CursorBookkeeping(unittest.TestCase):
         self.assertEqual(self.subtle(), "off")
         self.assertFalse((self.sb.state_dir / "subtle-by-afterburn").exists())
 
-    def test_quiet_ending_while_saver_is_on_brings_the_effect_back(self):  # spec bug 1
+    def test_quiet_ending_while_saver_is_on_leaves_the_effect_off_until_saver_ends(self):  # spec bug 1
         self.ab("saver", "on")
         self.ab("quiet", "on")
         self.assertEqual((self.effect(), self.pre.read_text().strip()), ("off", "lightning"))
         self.ab("quiet", "off")
-        self.assertEqual((self.effect(), self.pre.exists(), self.still()), ("lightning", False, 1))
+        self.assertEqual((self.effect(), self.pre.read_text().strip()), ("off", "lightning"))
+        self.ab("saver", "off")
+        self.assertEqual((self.effect(), self.pre.exists()), ("lightning", False))
         self.assertIn("cursor-fx lightning", self.sb.call_log())
 
     def test_saver_ending_while_quiet_is_on_leaves_the_effect_off_until_quiet_ends(self):
@@ -142,11 +173,12 @@ class CursorBookkeeping(unittest.TestCase):
         self.ab("quiet", "off")
         self.assertEqual((self.effect(), self.pre.exists()), ("lightning", False))
 
-    def test_set_cursor_fx_under_saver_is_applied_now(self):  # spec bug 2
+    def test_set_cursor_fx_under_saver_waits_for_saver_to_end(self):  # spec bug 2
         self.ab("saver", "on")
         self.ab("set", "CURSOR_FX", "cyber")
+        self.assertEqual((self.effect(), self.pre.read_text().strip()), ("off", "cyber"))
+        self.ab("saver", "off")
         self.assertEqual(self.effect(), "cyber")
-        self.assertIn("cursor-fx cyber", self.sb.call_log())
 
     def test_set_cursor_fx_under_quiet_waits_for_quiet_to_end(self):
         self.ab("quiet", "on")
@@ -169,6 +201,8 @@ class CursorBookkeeping(unittest.TestCase):
         self.ab("saver", "on")
         r = self.sb.run(["/bin/bash", str(HOOK), "afterburn"])
         self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual((self.effect(), self.pre.read_text().strip()), ("off", "neon"))
+        self.ab("saver", "off")
         self.assertEqual((self.effect(), self.pre.exists()), ("neon", False))
 
     def test_stale_hook_does_nothing_in_either_direction(self):

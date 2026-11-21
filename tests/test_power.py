@@ -39,6 +39,13 @@ class ProfileTests(PowerBase):
     def test_performance_on_battery_keeps_the_animation(self):
         self.assertEqual(self.tick(self.laptop("performance", 0)), ["afterburn saver off"])
 
+    def test_balanced_to_performance_resyncs_only_the_cursor(self):
+        sb = self.laptop("performance", 1)
+        r = sb.watch_func('saver=off; profile=balanced; power_tick; power_tick')
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        calls = [c for c in sb.call_log() if c.startswith("afterburn ")]
+        self.assertEqual(calls, ["afterburn cursor-sync"])   # once: the second tick sees no change
+
     def test_desktop_in_power_saver_is_still_not_a_laptop(self):
         sb = self.make()
         sb.supply("hidpp_battery_0", "Battery", scope="Device", status="Discharging", capacity=15)

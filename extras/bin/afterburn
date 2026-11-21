@@ -9,7 +9,8 @@
 #   afterburn apply                   regenerate hyprland.lua from the conf and reload Hyprland
 #   afterburn level cool|normal|hot   heat level (border, shadow, optional wallpaper swap)
 #   afterburn quiet on|off            fullscreen mode: no shadow, no spin, cursor-fx off
-#   afterburn saver on|off            battery mode: no shadow, no spin, cursor shaders not animated
+#   afterburn saver on|off            power-saver mode: no shadow, no spin, cursor-fx off
+#   afterburn cursor-sync             re-check the cursor effect against quiet, saver and the power profile
 #   afterburn laptop auto|on|off      LAPTOP_MODE; on/off also switch saver
 #   afterburn colors [--menu]         palette: swatches on a tty, Omarchy menu otherwise
 #   afterburn locate ZIP              US ZIP -> LAT/LON for the weather heat source
@@ -51,7 +52,7 @@ declare -A DEFAULT=([HEAT_SOURCE]=time [EVENING_HOURS]=19-07 [ZIP]="" [LAT]="" [
 die() { echo "afterburn: $*" >&2; exit 1; }
 
 usage() {
-  sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 write_default_conf() {
@@ -278,13 +279,13 @@ cmd_apply() {
   apply_visuals
 }
 
-# cursor-fx helpers. quiet and saver each own one thing, and either can end first:
-#   quiet holds the effect off. The one that was running is saved in cursor-pre-quiet (the file exists only
+# cursor-fx helpers. quiet, saver and the power profile decide the cursor effect:
+#   quiet or saver holds the effect off. The one that was running is saved in cursor-pre-quiet (the file exists only
 #   while quiet holds it off) and put back when quiet ends. (prev-cursor-fx is a different thing: the effect
 #   from before Afterburn took over, kept by the theme-set hook and restored when you leave it.)
-#   saver stops Ghostty animating shaders (ab_ghostty_still) and never touches the effect itself. It used to turn
-#   `cursor-fx subtle` on, which still redraws every frame; subtle-by-afterburn, the record an older saver left
-#   when it did, is undone once.
+#   the balanced profile on a laptop keeps the effect but stops Ghostty animating it (ab_ghostty_still);
+#   performance animates it. subtle-by-afterburn, the record an older saver left when it turned
+#   `cursor-fx subtle` on, is undone once.
 CFX_PRE="$STATE/cursor-pre-quiet"
 SUBTLE_REC="$STATE/subtle-by-afterburn"
 cfx_now() { ab_cursor_now; }
@@ -292,7 +293,7 @@ cfx_now() { ab_cursor_now; }
 cfx_sync() {
   mkdir -p "$STATE"
   if command -v cursor-fx >/dev/null 2>&1; then
-    if flag_on quiet; then
+    if effective_quiet; then
       [[ -f $CFX_PRE ]] || cfx_now > "$CFX_PRE"
       cursor-fx off >/dev/null 2>&1 || true
     elif [[ -f $CFX_PRE ]]; then
@@ -304,8 +305,8 @@ cfx_sync() {
       rm -f "$SUBTLE_REC"
     fi
   fi
-  # After any switch above, so the saver line is checked against the config as cursor-fx left it.
-  if flag_on saver; then ab_ghostty_still on; else ab_ghostty_still off; fi
+  # After any switch above, so the still line is checked against the config as cursor-fx left it.
+  if ! effective_quiet && ab_cursor_still_wanted; then ab_ghostty_still on; else ab_ghostty_still off; fi
 }
 
 # CURSOR_FX and EMBER_STYLE act outside Hyprland, so `set` pushes them out at once. (A hand edit of the
@@ -637,6 +638,7 @@ case $cmd in
   level)  cmd_level "$@" ;;
   quiet)  cmd_mode quiet "${1:-}" ;;
   saver)  cmd_mode saver "${1:-}" ;;
+  cursor-sync) load_conf; if is_afterburn; then cfx_sync; fi ;;
   laptop) cmd_laptop "$@" ;;
   colors) cmd_colors "$@" ;;
   locate) cmd_locate "$@" ;;
